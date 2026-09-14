@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ROS / colcon
+build/
+install/
+log/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Generated plots / test output
+*.png
+*.pdf
+
+# Temporary files
+*.tmp
+*.swp
+*~
