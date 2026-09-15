@@ -139,7 +139,7 @@ poses and joints when it starts motion.
 
 ## Physical bringup prepared for the upcoming test
 
-`dual_cartesian_launch.launch.py` follows `dual_arm_launch.launch.py`:
+`dual_cartesian.launch.py` follows `dual_arm.launch.py`:
 
 - Right robot: `192.168.1.100`, namespace `/right`, prefix `right_`.
 - Left robot: `192.168.2.100`, namespace `/left`, prefix `left_`.
@@ -157,7 +157,7 @@ poses and joints when it starts motion.
 For the future hardware session, the bringup command is:
 
 ```bash
-ros2 launch dual_crx_control dual_cartesian_launch.launch.py
+ros2 launch dual_crx_control dual_cartesian.launch.py
 ```
 
 Optional arguments: `left_robot_ip`, `right_robot_ip`, and `rviz`. The physical
@@ -328,7 +328,7 @@ then closes the mock launch. Its files are under `src/dual_crx_control/test_resu
 | --- | --- |
 | `scripts/dual_test_5_cartesion_sychro_motion.py` | Renamed from `dual_cartesian_synchronized.py`; owns trajectory and commands; reads the running bringup's description |
 | `launch/dual_cartesian_mock.launch.py` | Removed automatic controller startup and motion parameters; software bringup only |
-| `launch/dual_cartesian_launch.launch.py` | Added physical bringup with matching interfaces and calibrated visualization |
+| `launch/dual_cartesian.launch.py` | Added physical bringup with matching interfaces and calibrated visualization |
 | `CMakeLists.txt` | Installs the renamed motion executable |
 | `package.xml` | Declares joint-state merger and controller-manager dependencies |
 | `tests/test_cartesian.py` | Updated script imports and added description-readiness failure coverage |

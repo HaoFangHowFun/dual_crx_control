@@ -27,3 +27,6 @@ log/
 
 # Generated simulation verification artifacts
 test_results/
+
+# Published latency report figures
+!docs/latency/*.png

@@ -10,6 +10,7 @@ from rclpy.node import Node
 
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
+from dual_crx_control.latency_recording import LatencyRecording, ordered_feedback
 
 
 AMPLITUDE_DEG = 20.0
@@ -46,7 +47,8 @@ class JointTest(Node):
         rate_hz,
         robot_namespace,
         plot_file,
-        show_plot
+        show_plot,
+        latency_csv=None
     ):
         super().__init__('crx_periodic_j1_test', namespace=robot_namespace)
 
@@ -87,6 +89,8 @@ class JointTest(Node):
         self.plot_file = plot_file
         self.show_plot = show_plot
 
+        self.latency_csv = latency_csv
+        self.latency_recording = LatencyRecording() if latency_csv else None
         self.current_joint_state = None
 
         self.create_subscription(
@@ -104,6 +108,20 @@ class JointTest(Node):
 
     def joint_state_callback(self, msg):
         self.current_joint_state = msg
+        if self.latency_recording is not None:
+            try:
+                q = ordered_feedback(msg, self.robot_namespace)
+                stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+                self.latency_recording.add(self.robot_namespace, 'feedback', q, stamp=stamp)
+            except (KeyError, ValueError):
+                self.latency_recording.invalid += 1
+
+    def publish_recorded(self, message):
+        if self.latency_recording is not None:
+            self.latency_recording.add(self.robot_namespace, 'command', message.data)
+        self.publisher.publish(message)
+        if self.latency_recording is not None:
+            self.latency_recording.add(self.robot_namespace, 'publish_return', message.data)
 
     def current_joint_position(self):
         if (
@@ -212,9 +230,11 @@ class JointTest(Node):
             if elapsed >= self.initial_hold_time:
                 break
 
+            if self.latency_recording is not None:
+                self.latency_recording.add(self.robot_namespace, 'generated', command)
             msg = Float64MultiArray()
             msg.data = command
-            self.publisher.publish(msg)
+            self.publish_recorded(msg)
 
             rclpy.spin_once(self, timeout_sec=0.0)
             history['time'].append(elapsed)
@@ -238,10 +258,12 @@ class JointTest(Node):
                 + scale * self.amplitude_rad * math.sin(phase)
             )
 
+            if self.latency_recording is not None:
+                self.latency_recording.add(self.robot_namespace, 'generated', command)
             msg = Float64MultiArray()
             msg.data = command
 
-            self.publisher.publish(msg)
+            self.publish_recorded(msg)
 
             rclpy.spin_once(self, timeout_sec=0.0)
             history['time'].append(elapsed)
@@ -254,7 +276,7 @@ class JointTest(Node):
         msg.data = start
 
         for _ in range(100):
-            self.publisher.publish(msg)
+            self.publish_recorded(msg)
             rclpy.spin_once(self, timeout_sec=0.0)
             time.sleep(sample_period)
 
@@ -339,7 +361,7 @@ def parse_args():
         '--namespace',
         default=DEFAULT_ROBOT_NAMESPACE,
         help=(
-            'robot namespace from dual_arm_launch.launch.py '
+            'robot namespace from dual_arm.launch.py '
             f'(default: {DEFAULT_ROBOT_NAMESPACE})'
         )
     )
@@ -395,6 +417,7 @@ def parse_args():
         action='store_true',
         help='show the response plot window after motion completes'
     )
+    parser.add_argument('--latency-csv', help='optional separate monotonic command/feedback event CSV')
     args = parser.parse_args()
 
     if args.joint < 1 or args.joint > 6:
@@ -433,7 +456,8 @@ def main():
         rate_hz=args.rate,
         robot_namespace=args.robot_namespace,
         plot_file=args.plot_file,
-        show_plot=args.show_plot
+        show_plot=args.show_plot,
+        latency_csv=args.latency_csv
     )
 
     try:
@@ -443,6 +467,13 @@ def main():
         node.get_logger().warning('Interrupted by user.')
 
     finally:
+        if node.latency_recording is not None:
+            node.latency_recording.save(node.latency_csv,
+                command_time='immediately before application publish',
+                generated_time='after sine target calculation',
+                feedback_time='application callback receipt',
+                motion_period=args.period, amplitude_deg=args.amplitude,
+                initial_hold=args.initial_hold, ramp_time=args.ramp_time)
         node.destroy_node()
         rclpy.shutdown()
 
