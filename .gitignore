@@ -24,3 +24,6 @@ log/
 *.tmp
 *.swp
 *~
+
+# Generated simulation verification artifacts
+test_results/

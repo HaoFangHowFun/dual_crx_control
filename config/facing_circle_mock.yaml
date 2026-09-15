@@ -1,0 +1,20 @@
+# Mock-validated placement; world coordinates in metres.
+# Assumes local TCP +X is tool-forward, +Z stays world-up, and 200 mm TCP gap.
+# Conditioning checks do not check link/tool collisions.
+dual_test_6_cartesian_circle_motion:
+  ros__parameters:
+    radius: 0.1
+    plane: xz
+    direction: cw
+    period: 4.0
+    cycles: 10
+    max_velocity: 2.0
+    rate: 50.0
+    command_rate: 500.0
+    face_each_other: true
+    tcp_gap: 0.2
+    center_midpoint:
+    - 0.55
+    - -0.38
+    - 0.3
+    minimum_scaled_sigma: 0.1
