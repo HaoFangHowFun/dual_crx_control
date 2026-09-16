@@ -20,6 +20,7 @@ install(PROGRAMS
   scripts/analyze_latency.py
   scripts/analyze_latency_trace.py
   scripts/dual_mock_robot.py
+  scripts/teleop_bridge
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -37,6 +38,8 @@ if(BUILD_TESTING)
   ament_add_pytest_test(facing_circle tests/test_facing_circle.py TIMEOUT 60)
   ament_add_pytest_test(latency tests/test_latency.py
     ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1 TIMEOUT 60)
+  ament_add_pytest_test(teleop_bridge tests/test_teleop_bridge.py
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST TIMEOUT 60)
 
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
