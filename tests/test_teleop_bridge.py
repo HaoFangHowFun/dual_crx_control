@@ -10,6 +10,7 @@ import time
 import xml.etree.ElementTree as ET
 
 import pytest
+import numpy as np
 import rclpy
 from controller_manager_msgs.srv import ListControllers
 from rclpy.context import Context
@@ -75,34 +76,23 @@ def ros_pair():
         context.shutdown()
 
 
-def test_command_split_validation_timeout_and_resume(ros_pair):
+def test_command_target_validation_and_twenty_hz_timer(ros_pair):
+    from unittest.mock import patch
     bridge, peer, executor = ros_pair
-    commands = {side: [] for side in SIDES}
-    for side in SIDES:
-        peer.create_subscription(Float64MultiArray,
-                                 f'/{side}/forward_position_controller/commands',
-                                 lambda msg, s=side: commands[s].append(list(msg.data)), 10)
-    publisher = peer.create_publisher(Float64MultiArray, '/teleop/joint_command', 1)
-    spin_until(executor, lambda: publisher.get_subscription_count() == 1 and all(
-        pub.get_subscription_count() == 1 for pub in bridge.arm_publishers.values()))
-    spin_for(executor, 0.1)
-    assert commands == {'left': [], 'right': []}  # No startup commands.
-    target = [i / 1000.0 for i in range(12)]
-    publisher.publish(Float64MultiArray(data=target))
-    spin_until(executor, lambda: all(commands.values()))
-    assert commands == {'left': [target[:6]], 'right': [target[6:]]}
-    accepted_at = bridge.last_command_time
-    for data in ([], [0.0] * 11, [0.0] * 13,
-                 *([0.0] * 11 + [v] for v in (float('nan'), float('inf'), -float('inf')))):
-        publisher.publish(Float64MultiArray(data=data))
-        spin_for(executor, 0.05)
-    spin_until(executor, lambda: bridge.command_timed_out)
-    assert bridge.last_command_time == accepted_at
-    assert commands == {'left': [target[:6]], 'right': [target[6:]]}
-    publisher.publish(Float64MultiArray(data=[0.0] * 12))
-    spin_until(executor, lambda: all(len(rows) == 2 for rows in commands.values()))
-    assert not bridge.command_timed_out
-    assert all(rows[-1] == [0.0] * 6 for rows in commands.values())
+    assert bridge.input_rate == 20.
+    assert any(timer.timer_period_ns == 50_000_000 for timer in bridge.timers)
+    with patch.object(bridge.target_client, 'available', return_value=True), \
+            patch.object(bridge.target_client, 'publish') as publish:
+        bridge.receive_command(Float64MultiArray(data=[.001]*12))
+        bridge.send_target()
+        publish.assert_called_once_with({'left': [.001]*6, 'right': [.001]*6})
+        accepted = bridge.pending_command
+        for data in ([], [0.]*11, [0.]*13, [float('nan')]*12, [float('inf')]*12):
+            bridge.receive_command(Float64MultiArray(data=data))
+        assert bridge.pending_command == accepted
+        bridge.send_target()
+        assert publish.call_count == 1
+    assert not any('forward_position_controller/commands' in pub.topic_name for pub in bridge.publishers)
 
 
 def test_feedback_requires_both_arms_and_orders_by_name(ros_pair):
@@ -144,7 +134,8 @@ def test_feedback_requires_both_arms_and_orders_by_name(ros_pair):
     spin_until(executor, lambda: not received[-1].velocity)
 
 
-def test_installed_mock_launch_round_trip(tmp_path):
+@pytest.mark.parametrize('launch_name', ['teleop_joint.launch.py', 'dual_arm.launch.py'])
+def test_installed_mock_launch_round_trip(tmp_path, launch_name):
     context = Context()
     rclpy.init(context=context, domain_id=184)
     peer = Node('teleop_mock_acceptance', context=context)
@@ -152,16 +143,27 @@ def test_installed_mock_launch_round_trip(tmp_path):
     executor.add_node(peer)
     feedback = []
     command_counts = {side: 0 for side in SIDES}
+    arm_feedback = {side: [] for side in SIDES}
 
     def count(side):
         command_counts[side] += 1
 
     for side in SIDES:
+        peer.create_subscription(JointState, f'/{side}/joint_states',
+                                 arm_feedback[side].append, qos_profile_sensor_data)
         peer.create_subscription(Float64MultiArray,
                                  f'/{side}/forward_position_controller/commands',
                                  lambda msg, s=side: count(s), 10)
-    peer.create_subscription(JointState, '/teleop/joint_states', feedback.append, 10)
-    publisher = peer.create_publisher(Float64MultiArray, '/teleop/joint_command', 1)
+    teleop = launch_name == 'teleop_joint.launch.py'
+    peer.create_subscription(JointState, '/teleop/joint_states' if teleop else '/joint_states', feedback.append, 10)
+    publisher = peer.create_publisher(
+        Float64MultiArray if teleop else JointState,
+        '/teleop/joint_command' if teleop else '/interpolation/joint_targets', 1)
+
+    def publish_target(target):
+        message = Float64MultiArray(data=target) if teleop else JointState(
+            name=JOINT_NAMES['left'] + JOINT_NAMES['right'], position=target)
+        publisher.publish(message)
     env = dict(os.environ, ROS_DOMAIN_ID='184', ROS_AUTOMATIC_DISCOVERY_RANGE='LOCALHOST',
                ROS_STATIC_PEERS='', ROS_LOG_DIR=str(tmp_path / 'ros_logs'))
     with_rviz = os.environ.get('TELEOP_TEST_RVIZ') == '1'
@@ -173,20 +175,25 @@ def test_installed_mock_launch_round_trip(tmp_path):
     try:
         with (tmp_path / 'launch.log').open('w') as log:
             process = subprocess.Popen(
-                ['ros2', 'launch', 'dual_crx_control', 'teleop_joint.launch.py', 'mock:=true',
+                ['ros2', 'launch', 'dual_crx_control', launch_name, 'mock:=true',
                  f'rviz:={str(with_rviz).lower()}'],
                 env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-            spin_until(executor, lambda: len(feedback) > 10, timeout=15.0)
+            spin_until(executor, lambda: len(feedback) > 10 and len(feedback[-1].position) == 12, timeout=15.0)
             assert process.poll() is None
             assert command_counts == {'left': 0, 'right': 0}
             assert feedback[-1].name == JOINT_NAMES['left'] + JOINT_NAMES['right']
             initial = [0., 0., 0., 0., -math.pi / 2, 0.,
                        -math.pi / 2, 0., math.pi, 0., math.pi / 2, 0.]
-            # All initial samples must reflect the hardware pose before any commands.
-            for message in feedback:
-                assert list(message.position) == pytest.approx(initial)
+            # Check actual hardware feedback. The standard joint_state_publisher
+            # can expose partially populated merged positions during discovery.
+            spin_until(executor, lambda: all(arm_feedback.values()))
+            for index, side in enumerate(SIDES):
+                for message in arm_feedback[side]:
+                    by_name = dict(zip(message.name, message.position))
+                    assert [by_name[n] for n in JOINT_NAMES[side]] == pytest.approx(
+                        initial[index*6:(index+1)*6])
             if with_rviz:
-                spin_until(executor, lambda: 'teleop_rviz' in peer.get_node_names())
+                spin_until(executor, lambda: ('teleop_rviz' if teleop else 'rviz2') in peer.get_node_names())
                 spin_until(executor, lambda: all(buffer.can_transform(
                     'world', f'{side}_tcp', rclpy.time.Time()) for side in SIDES))
             # Verify the actual controller stack, and wait for command readiness.
@@ -208,24 +215,35 @@ def test_installed_mock_launch_round_trip(tmp_path):
                 for side in SIDES))
             assert list(feedback[-1].position) == pytest.approx(initial)
             assert command_counts == {'left': 0, 'right': 0}
-            for expected_count, target in enumerate(
-                    ([0.0] * 12, [0.00872665] + [0.0] * 11), start=1):
-                publisher.publish(Float64MultiArray(data=target))
-                spin_until(executor, lambda: list(feedback[-1].position) == target and all(
-                    count == expected_count for count in command_counts.values()))
-            spin_for(executor, 0.4)
-            assert command_counts == {'left': 2, 'right': 2}
-            assert list(feedback[-1].position) == target
+            target = initial.copy()
+            target[0] += .00872665
+            publish_target(target)
+            spin_until(executor, lambda: np.allclose(feedback[-1].position, target, atol=1e-7))
+            assert all(count > 10 for count in command_counts.values())
+            spin_for(executor, .4)
+            held_counts = command_counts.copy()
+            spin_for(executor, .1)
+            assert all(command_counts[s] > held_counts[s]+20 for s in SIDES)
+            assert list(feedback[-1].position) == pytest.approx(target)
+            # No timeout: the node holds at 500 Hz, then accepts the next target.
+            target[0] += .001
+            publish_target(target)
+            spin_until(executor, lambda: np.allclose(feedback[-1].position, target, atol=1e-7))
+            spin_for(executor, .4)
+            for side in SIDES:
+                assert [i.node_name for i in peer.get_publishers_info_by_topic(
+                    f'/{side}/forward_position_controller/commands')] == ['joint_interpolation']
             if with_rviz:
                 spin_until(executor, lambda: 'OpenGl version' in (tmp_path / 'launch.log').read_text())
             assert list(feedback[-1].velocity) == pytest.approx([0.0] * 12)
-            assert not feedback[-1].effort
+            if teleop:
+                assert not feedback[-1].effort
             before = len(feedback)
             started = time.monotonic()
             spin_for(executor, 0.5)
             rate = (len(feedback) - before) / (time.monotonic() - started)
             assert 70 < rate < 130, rate
-            print(f'Mock feedback: {rate:.1f} Hz; zero/small commands and timeout hold passed')
+            print(f'Mock feedback: {rate:.1f} Hz; small commands, continuous hold and resume passed')
     finally:
         if process is not None and process.poll() is None:
             process.send_signal(signal.SIGINT)

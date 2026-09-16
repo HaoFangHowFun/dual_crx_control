@@ -1,0 +1,23 @@
+{
+  "bringup_without_commands": "passed",
+  "left": {
+    "command_count": 7987,
+    "observed_command_rate_hz": 494.0961417201937,
+    "x_min_m": -0.019999946605556207,
+    "x_max_m": 0.01999993878643813,
+    "max_off_axis_error_m": 2.731588438775745e-06,
+    "max_orientation_error_rad": 3.244834819244458e-07
+  },
+  "right": {
+    "command_count": 7987,
+    "observed_command_rate_hz": 494.1091511329094,
+    "x_min_m": -0.01999994679413669,
+    "x_max_m": 0.019999938987482813,
+    "max_off_axis_error_m": 2.6965916225529796e-06,
+    "max_orientation_error_rad": 3.171285415167613e-07
+  },
+  "max_pair_cartesian_mismatch_m": 1.0831354737571036e-06,
+  "controller_command_rate_hz": 491.71,
+  "controller_ik_rate_hz": 49.66,
+  "hold_after_controller_stop": "passed"
+}

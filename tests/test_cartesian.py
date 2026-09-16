@@ -121,8 +121,9 @@ def controller(description):
         node.received[side] = time.monotonic()
     with patch.object(node.arm_publishers['left'], 'get_subscription_count', return_value=1), \
             patch.object(node.arm_publishers['right'], 'get_subscription_count', return_value=1), \
-            patch.object(node.arm_publishers['left'], 'publish') as left, \
-            patch.object(node.arm_publishers['right'], 'publish') as right:
+            patch.object(node.target_client, 'publish') as left, \
+            patch.object(node.target_client, 'available', return_value=True):
+        right = left
         yield node, left, right
     node.destroy_node()
     context.shutdown()
@@ -156,9 +157,7 @@ def test_failure_retains_previous_target_for_both_arms(controller, failure):
             node.cycle()
     assert not node.failed
     np.testing.assert_array_equal(node.segment_target, previous_target)
-    assert left.call_count == right.call_count == 1
-    np.testing.assert_array_equal(left.call_args.args[0].data, previous_target[0])
-    np.testing.assert_array_equal(right.call_args.args[0].data, previous_target[1])
+    assert left.call_count == right.call_count == 0
 
 
 def test_feedback_order_and_nonfinite_abort(controller):
@@ -171,59 +170,6 @@ def test_feedback_order_and_nonfinite_abort(controller):
     node.feedback('right', JointState(name=node.models['right'].joint_names,
                                       position=[float('nan')] * 6))
     assert node.failed
-
-
-def test_live_ros_feedback_loss_holds_both_targets(description):
-    import rclpy
-    from rclpy.context import Context
-    from rclpy.executors import SingleThreadedExecutor
-    from rclpy.parameter import Parameter
-    from std_msgs.msg import Float64MultiArray
-    context = Context()
-    rclpy.init(context=context, domain_id=175)
-    parameters = [Parameter('robot_description', value=description),
-                  Parameter('move_to_initial', value=False)]
-    mock = load_script('dual_mock_robot').DualMockRobot(
-        context=context, parameter_overrides=parameters)
-    controller = load_script('dual_test_5_cartesion_sychro_motion').DualCartesianController(
-        context=context, parameter_overrides=parameters)
-    executor = SingleThreadedExecutor(context=context)
-    executor.add_node(mock)
-    executor.add_node(controller)
-
-    def spin_for(seconds):
-        deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
-            executor.spin_once(timeout_sec=.01)
-
-    try:
-        deadline = time.monotonic() + 3
-        while controller.starts is None and time.monotonic() < deadline:
-            executor.spin_once(timeout_sec=.01)
-        assert controller.starts is not None
-        spin_for(.25)
-        assert not controller.failed
-        assert not np.array_equal(mock.positions['left'], INITIAL['left'])
-        # The mock rejects bad commands without altering its accepted position.
-        before = mock.positions['right'].copy()
-        mock.command('right', Float64MultiArray(data=[float('nan')] * 6))
-        np.testing.assert_array_equal(mock.positions['right'], before)
-        with patch.object(mock.arm_publishers['right'], 'publish'):
-            spin_for(.4)
-            assert not controller.failed
-            held = {s: q.copy() for s, q in mock.positions.items()}
-            spin_for(.1)
-            for side in INITIAL:
-                np.testing.assert_array_equal(mock.positions[side], held[side])
-        # Valid feedback allows new target pairs to be accepted again.
-        spin_for(.1)
-        assert not controller.failed
-        assert time.monotonic() - controller.received['right'] < .1
-    finally:
-        executor.shutdown()
-        controller.destroy_node()
-        mock.destroy_node()
-        context.shutdown()
 
 
 @pytest.mark.parametrize('failure', ['missing', 'malformed'])
@@ -270,6 +216,9 @@ def test_finite_two_mm_cycle_with_live_mock(description):
     for side in INITIAL:
         mock.positions[side] = INITIAL[side] + np.array([.01, -.01, .005, 0., 0., 0.])
     executor = SingleThreadedExecutor(context=context)
+    from dual_crx_control.interpolation_node import InterpolationNode
+    interpolation = InterpolationNode(context=context, parameter_overrides=parameters)
+    executor.add_node(interpolation)
     executor.add_node(mock)
     executor.add_node(controller)
     offsets = {side: [] for side in INITIAL}
@@ -301,12 +250,13 @@ def test_finite_two_mm_cycle_with_live_mock(description):
     finally:
         executor.shutdown()
         controller.destroy_node()
+        interpolation.destroy_node()
         mock.destroy_node()
         context.shutdown()
 
 
 def test_initial_joint_move_respects_limits_and_shared_timing(description):
-    from dual_crx_control.startup_motion import InitialJointMove
+    from motion.startup_motion import InitialJointMove
     models = {s: CRXKinematics(description, f'{s}_tcp') for s in INITIAL}
     starts = {s: q + np.array([.1, -.2, .05, .3, 0., -.15]) for s, q in INITIAL.items()}
     move = InitialJointMove(models, starts, INITIAL, .1, .1, .1)
@@ -357,32 +307,14 @@ def test_initial_move_failure_prevents_cartesian_start(controller, failure):
         assert left.call_count == right.call_count == 0
 
 
-def test_intermediate_commands_share_phase_without_running_ik(controller):
-    node, left, right = controller
-    with patch('time.monotonic', return_value=100.) as clock:
-        node.received = {'left': 100., 'right': 100.}
-        node.cycle()
-        q0 = node.segment_target.copy()
-        q1 = q0 + np.array([[.001] * 6, [-.002] * 6])
-        results = [IKResult(True, q, 1, 0., 0., 'test target') for q in q1]
-        with patch.object(node.solvers['left'], 'solve', return_value=results[0]) as lsolve, \
-                patch.object(node.solvers['right'], 'solve', return_value=results[1]) as rsolve:
-            clock.return_value = 100.02
-            node.cycle()
-            for t, phase in [(100.024, .2), (100.030, .5), (100.038, .9)]:
-                clock.return_value = t
-                node.cycle()
-                expected = q0 + phase * (q1 - q0)
-                np.testing.assert_allclose(left.call_args.args[0].data, expected[0], atol=1e-12)
-                np.testing.assert_allclose(right.call_args.args[0].data, expected[1], atol=1e-12)
-            assert lsolve.call_count == rsolve.call_count == 1
-            assert node.ik_count == 2
-            clock.return_value = 100.04
-            node.cycle()
-            np.testing.assert_array_equal(lsolve.call_args.args[1], q1[0])
-            np.testing.assert_array_equal(rsolve.call_args.args[1], q1[1])
-            np.testing.assert_array_equal(node.segment_start, q1)
-            assert not node.failed
+def test_controller_only_sends_joint_targets(controller):
+    node, publisher, _ = controller
+    node.cycle()
+    first = node.segment_target.copy()
+    assert publisher.call_count == 1
+    np.testing.assert_array_equal(publisher.call_args.args[0]['left'], first[0])
+    assert node.timer.timer_period_ns == 20_000_000
+    assert not any('forward_position_controller/commands' in pub.topic_name for pub in node.publishers)
 
 
 def test_recording_preserves_distinct_command_and_feedback(description, tmp_path):

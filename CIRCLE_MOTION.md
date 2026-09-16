@@ -1,3 +1,5 @@
+> Current joint output architecture: [INTERPOLATION.md](INTERPOLATION.md). All circle scripts send joint targets to the independent 500 Hz node; Cartesian planning remains upstream. Historical measurements below predate this split.
+
 # Simultaneous dual-TCP circles
 
 `dual_test_6_cartesian_circle_motion.py` is a separate executable. The existing
@@ -12,7 +14,7 @@ cd ~/ws_fanuc
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install --packages-select dual_crx_control
 source install/setup.bash
-ros2 launch dual_crx_control dual_cartesian_mock.launch.py
+ros2 launch dual_crx_control dual_arm.launch.py mock:=true
 ```
 
 In a second terminal with the same ROS domain:
@@ -37,7 +39,7 @@ Defaults:
 | `period` | 8.0 s | Average lap time for finite runs; cruise lap time when repeating indefinitely |
 | `cycles` | 1 | Number of laps; 0 repeats until stopped |
 | `rate` | 50.0 Hz | Cartesian trajectory + IK updates |
-| `command_rate` | 500.0 Hz | Joint command publication |
+| interpolation output | fixed 500 Hz | Separate joint interpolation node |
 | `move_to_initial` | true | Move both arms to the configured initial joints first |
 | `save_plot` | true | Save circle plot, CSV, and JSON at completion/Ctrl+C |
 | `output_dir` | `cartesian_motion_results` | Relative to the working directory |
@@ -84,7 +86,7 @@ cruise speed is slightly higher to compensate for the two endpoint ramps, so
 
 With `cycles:=0`, angular speed ramps up once and then stays constant at one
 lap per `period` seconds. No automatic slowdown is scheduled for an indefinite
-run; Ctrl+C retains the existing command-stream-stop behavior. The commanded
+run; Ctrl+C retains the existing target-stream-stop behavior. The commanded
 path remains an approximation between the 50 Hz IK targets because
 interpolation is linear in joint space.
 
@@ -95,8 +97,8 @@ capturing their Cartesian starting poses. Use `move_to_initial:=false` to draw
 circles through the current measured TCP poses instead.
 
 For a finite run, each TCP returns approximately to its Cartesian start, holds
-for 0.5 seconds, and stops the command stream. Ctrl+C can stop a run partway
-through; the mock holds its last command. Existing target rejection keeps both
+for 0.5 seconds, and stops sending new targets. Ctrl+C can stop a run partway
+through; interpolation completes the last segment and keeps publishing its endpoint at 500 Hz. Existing target rejection keeps both
 arms on their last accepted segment and then holds its endpoint.
 
 ## Facing TCPs and adjusted circle centers
@@ -145,7 +147,7 @@ For a mock test, launch bringup in one terminal:
 cd ~/ws_fanuc
 source install/setup.bash
 export ROS_DOMAIN_ID=178 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ROS_STATIC_PEERS=''
-ros2 launch dual_crx_control dual_cartesian_mock.launch.py
+ros2 launch dual_crx_control dual_arm.launch.py mock:=true
 ```
 
 In another terminal, use the same ROS settings and run the profile:
@@ -195,7 +197,7 @@ under `test_results/facing_circle/live/`. It checks all 10 laps, radius, closure
 inward orientation, gap, conditioning, command velocity, and achieved rates.
 It shuts down the mock processes it starts. No physical robot test was run.
 
-The complete 10-lap acceptance measured **499.82 Hz commands and 50.00 Hz IK**,
+The historical software-mock 10-lap acceptance measured **499.82 Hz commands and 50.00 Hz IK**,
 with no aborts or rejected target pairs. Across the recorded command stream,
 minimum scaled singular values were 0.38524 (left) and 0.38007 (right); peak
 joint speeds were 0.5112 and 0.5049 rad/s. Maximum radial error was 0.0208 mm,
@@ -244,11 +246,14 @@ Only mock motion was executed for this change. The first mock run measured
 These are ideal-model measurements, not physical robot accuracy claims. The
 circle and initial-joint return do not include collision avoidance.
 
+Current GenericSystem validation, including the unmet 0.1 mm facing-circle radius
+tolerance, is documented in [INTERPOLATION_TEST_RESULTS.md](INTERPOLATION_TEST_RESULTS.md).
+
 ## Files changed
 
 - `scripts/dual_test_6_cartesian_circle_motion.py`: new circle executable and parameters.
 - `src/dual_crx_control/circular_trajectory.py`: circle geometry and smooth lap phase.
-- `src/dual_crx_control/cartesian_controller.py`: shared controller extracted from
+- `scripts/motion/cartesian_controller.py`: shared controller extracted from
   the existing sinusoidal script, with a trajectory-offset override.
 - `scripts/dual_test_5_cartesion_sychro_motion.py`: thin entry point retaining the
   existing sinusoidal controller behavior and executable name.
@@ -258,5 +263,5 @@ circle and initial-joint return do not include collision avoidance.
 - `CMakeLists.txt`: installs the new executable and registers circle tests.
 - `CARTESIAN_MOTION.md` and `CIRCLE_MOTION.md`: updated documentation.
 
-Existing launch files, calibrated URDF, kinematics, IK solver, and interpolation
+The calibrated URDF, kinematics and IK solver
 math are unchanged.

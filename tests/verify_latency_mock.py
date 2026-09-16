@@ -26,7 +26,7 @@ def main():
         processes.append(process)
         return process
     try:
-        start('bringup',['ros2','launch','dual_crx_control','dual_cartesian_mock.launch.py','rviz:=false'])
+        start('bringup',['ros2','launch','dual_crx_control','dual_arm.launch.py', 'mock:=true','rviz:=false'])
         observer=start('observer',['ros2','run','dual_crx_control','record_latency.py',
                                   '--duration','13','--output',str(OUTPUT/'observer.csv')])
         sine=start('sine',['ros2','run','dual_crx_control','dual_test2_periodic.py',
@@ -49,7 +49,7 @@ def main():
             assert abs(lag)<30., report
         with (OUTPUT/'application.csv').open() as f:
             rows=list(csv.DictReader(f))
-        assert {'generated','command','publish_return','feedback'} <= {r['source'] for r in rows}
+        assert {'generated','target','command','target_publish_return','feedback'} <= {r['source'] for r in rows}
         print('Installed diagnostic sine, passive recorder and offline analysis passed in mock.')
     finally:
         for process in reversed(processes):

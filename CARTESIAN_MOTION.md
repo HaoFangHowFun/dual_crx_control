@@ -15,43 +15,24 @@ initial joints. It captures the Cartesian starting poses only after both arms
 reach and hold their initial targets. An explicit `robot_description`
 ROS parameter remains available for tests or custom integration.
 
-## 50 Hz IK and 500 Hz linear commands
+## Independent joint interpolation
 
-`rate:=50.0` is the Cartesian trajectory/IK rate. `command_rate:=500.0` is the
-joint-command publication rate. These are separate settings; setting
-`rate:=500.0` would request 500 Hz IK and is not needed for 500 Hz commands.
+See [INTERPOLATION.md](INTERPOLATION.md) for the current interface and launch parameters.
+`rate:=50.0` controls motion/IK target generation. The separate `joint_interpolation`
+node resamples joint sequences at a hardcoded 500 Hz, using `method:=linear` or
+`method:=cubic`. It performs no Cartesian computation. Both mock and real motion
+bringup include it once; scripts publish joint targets and never controller commands.
+Set bringup `input_rate_hz` to match the motion rate. The old `command_rate` option
+has been removed. Initial moves remain upstream quintic joint plans.
 
-One shared 500 Hz timer services the two arms. Every 20 ms it computes a new
-Cartesian target and runs each arm's IK once. Both successful solutions form a
-single segment with shape `(2, 6)`, interpolated with a shared scalar phase:
+Interpolation validates joint data only. Motion planning keeps its existing
+limits and feedback checks. When targets stop, interpolation completes the last
+segment and continuously publishes its endpoint at 500 Hz. Finite motion observes
+the command report to confirm its last target; there is no session or watchdog.
 
-```text
-q_command = (1 - phase) * previous_target + phase * next_target
-phase = clamp((now - segment_start_time) / 0.020, 0, 1)
-```
+The measurements below predate the node split; current results are documented in
+`INTERPOLATION_TEST_RESULTS.md`.
 
-`src/dual_crx_control/interpolation.py` owns the ROS-independent math. It requires
-matching finite arrays and a finite phase, clamps the phase, and returns a new
-array. The next IK seed is the previous accepted target, not an intermediate
-500 Hz command. The first segment starts from current feedback. Targets are
-played over the following 20 ms, introducing approximately one IK interval of
-lag. The scheduler skips missed IK slots instead of doing catch-up bursts.
-
-The existing quintic move-to-initial planner and amplitude ramps are retained;
-no new cubic/quintic interpolator is used between joint targets. Startup joint
-waypoints also feed the shared linear segment. Both command messages are
-computed first and published back-to-back with unchanged topics and joint order.
-
-If either Cartesian target fails IK, finite/limit checks, `max_target_step`, or
-the existing velocity bound, the segment is not replaced for either arm. It
-finishes and holds its old endpoint. Missing/stale feedback or subscribers also
-prevent accepting new Cartesian targets. Restored feedback permits validation
-of later targets, but a large catch-up step can still be rejected. Rejection
-logs are limited to one per second. Existing startup abort checks and final
-command step/velocity guards remain in place.
-
-Startup logs print both requested rates and the 20 ms linear segment duration.
-On exit the script reports approximate achieved publication and IK update rates.
 The RViz mock acceptance run measured 50.00 Hz IK and about 500.03 Hz publication,
 with observed command rates of about 500 Hz on both topics. These are measured
 averages, not hard real-time guarantees. The mock keeps its existing 100 Hz
@@ -77,14 +58,14 @@ Terminal 1 — start the stationary software robots and RViz:
 ```bash
 cd /home/msc-crx/ws_fanuc
 source install/setup.bash
-ros2 launch dual_crx_control dual_cartesian_mock.launch.py
+ros2 launch dual_crx_control dual_arm.launch.py mock:=true
 ```
 
-The mock launch starts only the ideal software robot, calibrated
-robot_state_publisher, and RViz. It never loads the physical FANUC driver.
-Its only launch argument is `rviz` (default `true`). Use `rviz:=false` for
-headless bringup. The launch inherits the terminal's ROS domain and discovery
-settings, just like the motion script; it does not override them.
+Mock mode uses ros2_control GenericSystem with the same forward position
+controllers as hardware mode, plus interpolation and the calibrated global TF.
+RViz defaults to enabled; use `rviz:=false` for headless bringup. Other options
+include `input_rate_hz`, `method`, and the per-arm IP addresses. Neither mode
+starts a motion script or overrides the terminal's ROS discovery configuration.
 
 Terminal 2 — explicitly start the motion:
 
@@ -120,11 +101,11 @@ Motion parameters belong to the script, for example:
 
 ```bash
 ros2 run dual_crx_control dual_test_5_cartesion_sychro_motion.py \
-  --ros-args -p axis:=z -p amplitude:=0.01 -p period:=6.0 -p rate:=50.0 -p command_rate:=500.0
+  --ros-args -p axis:=z -p amplitude:=0.01 -p period:=6.0 -p rate:=50.0
 ```
 
-Ctrl+C in Terminal 2 stops the command stream. The mock keeps publishing its
-last accepted joint positions, and RViz remains open. Restarting the motion
+Ctrl+C in Terminal 2 stops the target stream. Interpolation completes its last
+segment and keeps publishing the held joint positions at 500 Hz; and RViz remains open. Restarting the motion
 script repeats the move to the configured initial joints before Cartesian motion. Ctrl+C in Terminal 1
 closes bringup; restarting bringup resets the mock to these initial angles:
 
@@ -139,12 +120,12 @@ poses and joints when it starts motion.
 
 ## Physical bringup prepared for the upcoming test
 
-`dual_cartesian.launch.py` follows `dual_arm.launch.py`:
+`dual_arm.launch.py mock:=false` uses the same node definitions as mock mode:
 
 - Right robot: `192.168.1.100`, namespace `/right`, prefix `right_`.
 - Left robot: `192.168.2.100`, namespace `/left`, prefix `left_`.
-- Each FANUC driver starts with `initial_controller:=none`; dedicated spawners
-  activate the six-joint forward position controllers.
+- Each controller manager activates joint_state_broadcaster and the six-joint
+  forward position controller through dedicated spawners.
 - `motion_control:=1` enables the physical driver's motion authority, as in the
   existing motion-capable launch. This is physical bringup, not a read-only launch.
 - A joint-state publisher merges the arms' feedback for the combined calibrated
@@ -157,7 +138,7 @@ poses and joints when it starts motion.
 For the future hardware session, the bringup command is:
 
 ```bash
-ros2 launch dual_crx_control dual_cartesian.launch.py
+ros2 launch dual_crx_control dual_arm.launch.py mock:=false
 ```
 
 Optional arguments: `left_robot_ip`, `right_robot_ip`, and `rviz`. The physical
@@ -180,8 +161,7 @@ The preceding move to initial joints takes additional time. The default
 
 These physical commands were **not executed**. The new launch was inspected and
 its launch arguments validated without starting the drivers. Actual hardware
-behavior remains unverified. Existing real launches and joint-motion scripts
-are unchanged.
+behavior remains unverified. Mock and physical modes now share the same launch and joint-target interface.
 
 ## Interfaces and checks
 
@@ -203,8 +183,8 @@ then sent back-to-back without sleeping or spinning between publications.
 Independent ROS topics do not provide an atomic hardware transaction.
 
 During Cartesian motion, invalid/missing feedback or rejected IK targets keep
-both arms on the previous segment, as described above. Existing final command
-step/velocity violations and startup failures still latch an abort. A model
+both arms on the previous segment, as described above. Upstream target step/velocity violations and startup failures stop new targets;
+interpolation retains the last accepted endpoint. A model
 change also requires a restart. Feedback freshness uses monotonic receipt time,
 including a check after IK before a new segment is accepted.
 
@@ -216,7 +196,7 @@ All settings below are ROS parameters on the motion script:
 | `amplitude` | 0.02 m |
 | `period` | 4.0 s |
 | `rate` | 50 Hz Cartesian target/IK updates |
-| `command_rate` | 500 Hz paired command publication |
+| interpolation output | fixed 500 Hz in the separate node |
 | `max_target_step` | 0.1 rad maximum joint change between accepted targets |
 | `ramp_time` | 1.0 s |
 | `cycles` | 0 (repeat indefinitely); positive integer for finite motion |
@@ -306,7 +286,7 @@ colcon test-result --test-result-base build/dual_crx_control --verbose
 /usr/bin/python3 src/dual_crx_control/tests/verify_cartesian_mock.py
 ```
 
-The 37 regression tests cover independent FK, finite-difference Jacobians,
+Regression tests cover independent FK, finite-difference Jacobians,
 full sine cycles on all axes, invalid/unreachable inputs, paired-command
 failures, live ROS feedback loss, missing/malformed bringup descriptions,
 initial-move speed/acceleration limits, initial tracking/settling failures, and
@@ -314,52 +294,20 @@ a full finite 2 mm cycle after returning a displaced mock to the initial joints.
 They also check linear interpolation endpoints/midpoint/clamping, invalid inputs,
 shared phase, held targets after rejection, and absence of IK on intermediate
 command updates.
-The full acceptance check uses localhost domain 174 and an available RViz
-desktop. It first proves bringup is stationary and emits no motion commands,
+The full acceptance check uses localhost domain 174 with headless GenericSystem bringup. It first proves bringup is stationary and emits no motion commands,
 then starts the installed motion executable as a separate process. It checks
 TCP motion/orientation, TF, both achieved rates, and continued feedback after
 stopping that process,
 then closes the mock launch. Its files are under `src/dual_crx_control/test_results/cartesian_mock/` (relative to the workspace):
 `launch.log`, `motion.log`, `metrics.json`, `tcp_tracking.png`, and `rviz.png`.
 
-## File changes for the separated workflow
+## Shared implementation
 
-| File | Change |
-| --- | --- |
-| `scripts/dual_test_5_cartesion_sychro_motion.py` | Renamed from `dual_cartesian_synchronized.py`; owns trajectory and commands; reads the running bringup's description |
-| `launch/dual_cartesian_mock.launch.py` | Removed automatic controller startup and motion parameters; software bringup only |
-| `launch/dual_cartesian.launch.py` | Added physical bringup with matching interfaces and calibrated visualization |
-| `CMakeLists.txt` | Installs the renamed motion executable |
-| `package.xml` | Declares joint-state merger and controller-manager dependencies |
-| `tests/test_cartesian.py` | Updated script imports and added description-readiness failure coverage |
-| `tests/verify_cartesian_mock.py` | Tests stationary bringup, independently launched motion, and independent stop; saves artifacts under `test_results/cartesian_mock/` |
-| `.gitignore` | Excludes generated `test_results/` artifacts |
-| `CARTESIAN_MOTION.md` | Documents the full workspace build and two-terminal mock and future physical workflows |
-
-The initial-move implementation is in `src/dual_crx_control/startup_motion.py`.
-The motion script and mock share its initial-pose constants. The calibrated
-URDF, FK/IK implementation, and RViz configuration are unchanged.
-
-## Files changed for linear interpolation
-
-- `src/dual_crx_control/interpolation.py`: finite-array linear interpolation.
-- `scripts/dual_test_5_cartesion_sychro_motion.py`: 50 Hz target updates, 500 Hz
-  paired interpolation, atomic target acceptance, rejection holds, rate counters.
-- `tests/test_interpolation.py`: minimal interpolation contract tests.
-- `tests/test_cartesian.py`: shared-phase/IK-rate checks and updated rejection tests.
-- `tests/verify_cartesian_mock.py`: external command-rate measurement and IK-rate
-  summary checks alongside the existing RViz acceptance test.
-- `CMakeLists.txt`: registers interpolation unit tests; Python package installation
-  automatically includes the new module.
-- `CARTESIAN_MOTION.md`: rate settings, segment behavior, build/run/test instructions.
-
-No launch, URDF, kinematics, IK solver, or package dependency changes were needed
-for this interpolation update.
-
-The command-versus-feedback plotting update adds
-`src/dual_crx_control/motion_recording.py` and updates the motion script,
-`tests/test_cartesian.py`, `tests/verify_cartesian_mock.py`, and this guide.
-Existing matplotlib dependencies and Python installation rules are reused.
+Robot bringup is in `launch/dual_arm.launch.py`; controller configuration is in
+`config/dual_arm_controllers.yaml`. Startup and Cartesian/circle controllers are
+in `scripts/motion/`. Joint-only interpolation is in `src/dual_crx_control/`.
+`dual_mock_robot.py` remains a lightweight unit-test tool; the launch uses
+GenericSystem. Current validation results are in `INTERPOLATION_TEST_RESULTS.md`.
 
 ## Separate circular-motion experiment
 
@@ -367,4 +315,4 @@ Use `dual_test_6_cartesian_circle_motion.py` for simultaneous TCP circles.
 See [CIRCLE_MOTION.md](CIRCLE_MOTION.md) for radius/plane/direction options, mock
 run commands, and circle plots. The sinusoidal executable remains available;
 its controller implementation now lives in the shared
-`src/dual_crx_control/cartesian_controller.py` module.
+`scripts/motion/cartesian_controller.py` module.

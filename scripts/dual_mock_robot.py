@@ -6,12 +6,13 @@ from functools import partial
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 
 from dual_crx_control.kinematics import CRXKinematics
-from dual_crx_control.startup_motion import INITIAL_JOINTS_DEG
+from dual_crx_control.joint_config import INITIAL_JOINTS_DEG
 
 
 INITIAL = {side: np.radians(angles) for side, angles in INITIAL_JOINTS_DEG.items()}
@@ -35,7 +36,7 @@ class DualMockRobot(Node):
                                      f'/{side}/forward_position_controller/commands',
                                      partial(self.command, side), 1)
         self.combined = self.create_publisher(JointState, '/joint_states', 1)
-        self.create_timer(1. / rate, self.publish_states)
+        self.create_timer(1. / rate, self.publish_states, clock=Clock(clock_type=ClockType.STEADY_TIME))
         self.get_logger().info('Ideal software mock ready; missing commands hold last position.')
 
     def command(self, side, message):

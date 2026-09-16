@@ -11,7 +11,7 @@ import xacro
 from dual_crx_control.circular_trajectory import CircularTrajectory
 from dual_crx_control.kinematics import CRXKinematics
 from dual_crx_control.ik_solver import DampedLeastSquaresIK, pose_error
-from dual_crx_control.startup_motion import INITIAL_JOINTS_DEG
+from motion.startup_motion import INITIAL_JOINTS_DEG
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -76,6 +76,9 @@ def test_full_circle_stream_and_path_plot(tmp_path):
                                                            Parameter('cycles', value=2),
                                                            Parameter('period', value=4.)])
     executor = SingleThreadedExecutor(context=context)
+    from dual_crx_control.interpolation_node import InterpolationNode
+    interpolation = InterpolationNode(context=context, parameter_overrides=parameters)
+    executor.add_node(interpolation)
     executor.add_node(mock)
     executor.add_node(controller)
     try:
@@ -105,6 +108,7 @@ def test_full_circle_stream_and_path_plot(tmp_path):
         assert 'world_y_m' in csv_path.read_text().splitlines()[0]
     finally:
         executor.shutdown()
+        interpolation.destroy_node()
         mock.destroy_node()
         controller.destroy_node()
         context.shutdown()

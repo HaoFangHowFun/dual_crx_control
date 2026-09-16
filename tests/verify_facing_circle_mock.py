@@ -13,7 +13,7 @@ import numpy as np
 import xacro
 from ament_index_python.packages import get_package_prefix, get_package_share_directory
 
-from dual_crx_control.facing_circle import scaled_min_singular_value, facing_start_poses
+from motion.facing_circle import scaled_min_singular_value, facing_start_poses
 from dual_crx_control.kinematics import CRXKinematics
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -87,14 +87,15 @@ def main():
     try:
         with (OUTPUT / 'launch.log').open('w') as launch_log, (OUTPUT / 'motion.log').open('w') as motion_log:
             launch = subprocess.Popen(['ros2', 'launch', 'dual_crx_control',
-                                       'dual_cartesian_mock.launch.py'], stdout=launch_log,
+                                       'dual_arm.launch.py', 'mock:=true', 'rviz:=false'], stdout=launch_log,
                                       stderr=subprocess.STDOUT, start_new_session=True)
             executable = Path(get_package_prefix('dual_crx_control')) / 'lib/dual_crx_control/dual_test_7_cartesian_facing_circle_motion.py'
             motion = subprocess.Popen([str(executable), '--ros-args',
-                                       '-p', f'output_dir:={OUTPUT}'], stdout=motion_log,
+                                       '-p', f'output_dir:={OUTPUT}',
+                                       '-p', 'period:=4.0', '-p', 'max_velocity:=2.0',
+                                       '-p', 'tcp_gap:=0.2', '-p', 'center_midpoint:=[0.55, -0.38, 0.30]'], stdout=motion_log,
                                       stderr=subprocess.STDOUT, start_new_session=True)
             assert motion.wait(timeout=150) == 0, (OUTPUT / 'motion.log').read_text()
-            assert 'OpenGl version' in (OUTPUT / 'launch.log').read_text()
             if os.environ.get('DISPLAY'):
                 from PyQt5.QtWidgets import QApplication
                 app = QApplication([])

@@ -7,6 +7,8 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from dual_crx_control.interpolation_client import JointTargetClient
+from dual_crx_control.joint_config import canonical_side
 
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
@@ -16,16 +18,16 @@ from dual_crx_control.latency_recording import LatencyRecording, ordered_feedbac
 AMPLITUDE_DEG = 20.0
 RUN_TIME = 10.0
 MOTION_PERIOD = 4.0
-RATE_HZ = 500.0
+RATE_HZ = 50.0
 DEFAULT_JOINT = 1
-DEFAULT_ROBOT_NAMESPACE = 'robot1'
+DEFAULT_ROBOT_NAMESPACE = 'right'
 INITIAL_HOLD_TIME = 1.0
 RAMP_TIME = 1.0
 PLOT_FILE_TEMPLATE = 'j{joint}_periodic_response.png'
 
 
 def clean_namespace(namespace):
-    return namespace.strip('/')
+    return canonical_side(namespace)
 
 
 def namespaced_topic(robot_namespace, topic):
@@ -80,10 +82,7 @@ class JointTest(Node):
             f'{robot_namespace}_J{joint}' if robot_namespace else self.joint_label
         )
         self.joint_state_topic = namespaced_topic(robot_namespace, 'joint_states')
-        self.command_topic = namespaced_topic(
-            robot_namespace,
-            'forward_position_controller/commands'
-        )
+        self.command_topic = '/interpolation/joint_targets'
         print(f'Joint state topic: {self.joint_state_topic}')
         print(f'Command topic: {self.command_topic}')
         self.plot_file = plot_file
@@ -100,11 +99,19 @@ class JointTest(Node):
             10
         )
 
-        self.publisher = self.create_publisher(
-            Float64MultiArray,
-            self.command_topic,
-            10
-        )
+        self.target_client = JointTargetClient(self, rate_hz, [robot_namespace])
+        self.publisher = self.target_client.arm_publisher(robot_namespace)
+        if self.latency_recording is not None:
+            self.create_subscription(JointState, '/interpolation/joint_commands', self.output_callback, 100)
+
+    def output_callback(self, msg):
+        if self.latency_recording is not None:
+            values = dict(zip(msg.name, msg.position))
+            names = [f'{self.robot_namespace}_J{i}' for i in range(1, 7)]
+            if not set(names).issubset(values):
+                return
+            self.latency_recording.add(self.robot_namespace, 'command', [values[n] for n in names],
+                                       received_at=msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9)
 
     def joint_state_callback(self, msg):
         self.current_joint_state = msg
@@ -118,10 +125,10 @@ class JointTest(Node):
 
     def publish_recorded(self, message):
         if self.latency_recording is not None:
-            self.latency_recording.add(self.robot_namespace, 'command', message.data)
+            self.latency_recording.add(self.robot_namespace, 'target', message.data)
         self.publisher.publish(message)
         if self.latency_recording is not None:
-            self.latency_recording.add(self.robot_namespace, 'publish_return', message.data)
+            self.latency_recording.add(self.robot_namespace, 'target_publish_return', message.data)
 
     def current_joint_position(self):
         if (
@@ -236,7 +243,8 @@ class JointTest(Node):
             msg.data = command
             self.publish_recorded(msg)
 
-            rclpy.spin_once(self, timeout_sec=0.0)
+            for _callback in range(16):
+                rclpy.spin_once(self, timeout_sec=0.0)
             history['time'].append(elapsed)
             history['command'].append(command[self.joint_index])
             history['state'].append(self.current_joint_position())
@@ -265,7 +273,8 @@ class JointTest(Node):
 
             self.publish_recorded(msg)
 
-            rclpy.spin_once(self, timeout_sec=0.0)
+            for _callback in range(16):
+                rclpy.spin_once(self, timeout_sec=0.0)
             history['time'].append(elapsed)
             history['command'].append(command[self.joint_index])
             history['state'].append(self.current_joint_position())
@@ -277,7 +286,8 @@ class JointTest(Node):
 
         for _ in range(100):
             self.publish_recorded(msg)
-            rclpy.spin_once(self, timeout_sec=0.0)
+            for _callback in range(16):
+                rclpy.spin_once(self, timeout_sec=0.0)
             time.sleep(sample_period)
 
         self.get_logger().info('Motion complete.')
@@ -469,7 +479,7 @@ def main():
     finally:
         if node.latency_recording is not None:
             node.latency_recording.save(node.latency_csv,
-                command_time='immediately before application publish',
+                command_time='interpolation CLOCK_MONOTONIC sample stamp',
                 generated_time='after sine target calculation',
                 feedback_time='application callback receipt',
                 motion_period=args.period, amplitude_deg=args.amplitude,

@@ -31,7 +31,7 @@ def main():
     try:
         with (OUTPUT / 'launch.log').open('w') as log, (OUTPUT / 'motion.log').open('w') as motion_log:
             launch = subprocess.Popen(['ros2', 'launch', 'dual_crx_control',
-                                       'dual_cartesian_mock.launch.py'],
+                                       'dual_arm.launch.py', 'mock:=true', 'rviz:=false'],
                                       stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             executable = (Path(get_package_prefix('dual_crx_control')) / 'lib/dual_crx_control' /
                           'dual_test_6_cartesian_circle_motion.py')
@@ -41,7 +41,6 @@ def main():
             text = (OUTPUT / 'motion.log').read_text()
             assert 'ABORT' not in text and 'Target pair rejected' not in text, text
             assert 'Finite motion finished' in text
-            assert 'OpenGl version' in (OUTPUT / 'launch.log').read_text()
             summary = re.search(r'Achieved command rate: ([\d.]+) Hz; IK rate: ([\d.]+) Hz', text)
             assert summary and 450 < float(summary[1]) < 550 and 45 < float(summary[2]) < 55
             data_path = Path(re.search(r'Saved motion data: (.+)', text)[1])

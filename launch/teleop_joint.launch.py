@@ -1,9 +1,5 @@
 """Standalone dual-arm joint control with real or ros2_control mock hardware."""
 
-import math
-import xml.etree.ElementTree as ET
-
-import xacro
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.conditions import IfCondition
@@ -13,43 +9,19 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
-# Radians, J1-J6; same starting poses as dual_arm_mock.launch.py.
-# These initialize GenericSystem state only, never physical robot commands.
-MOCK_INITIAL_POSITIONS = {
-    'left': [0.0, 0.0, 0.0, 0.0, -math.pi / 2, 0.0],
-    'right': [-math.pi / 2, 0.0, math.pi, 0.0, math.pi / 2, 0.0],
-}
-
-
-def arm_description(xacro_path, side, robot_ip, mock):
-    description = xacro.process_file(xacro_path, mappings={
-        'robot_ip': robot_ip, 'use_mock': str(mock).lower(),
-        'prefix': f'{side}_', 'child_link': f'{side}_ee_mount', 'motion_control': '1',
-    }).toxml()
-    if not mock:
-        return description
-    # The driver's mock macro does not expose initial-position arguments.
-    # Add ros2_control's standard initial_value parameter to the expanded XML.
-    root = ET.fromstring(description)
-    for index, position in enumerate(MOCK_INITIAL_POSITIONS[side], start=1):
-        interface = root.find(
-            f"ros2_control/joint[@name='{side}_J{index}']/state_interface[@name='position']")
-        if interface is None:
-            raise ValueError(f'Missing mock position interface for {side}_J{index}')
-        initial = interface.find("param[@name='initial_value']")
-        if initial is None:
-            initial = ET.SubElement(interface, 'param', name='initial_value')
-        initial.text = str(position)
-    return ET.tostring(root, encoding='unicode')
+from dual_crx_control.robot_description import arm_description, MOCK_INITIAL_POSITIONS
 
 
 def launch_setup(context):
     share = FindPackageShare('dual_crx_control')
     driver_share = FindPackageShare('fanuc_hardware_interface')
-    controllers = PathJoinSubstitution([share, 'config', 'teleop_joint_controllers.yaml'])
+    controllers = PathJoinSubstitution([share, 'config', 'dual_arm_controllers.yaml'])
     mock = LaunchConfiguration('mock').perform(context) == 'true'
     xacro_path = PathJoinSubstitution([driver_share, 'robot', 'crx5ia.urdf.xacro']).perform(context)
-    actions = []
+    interpolation = Node(
+        package='dual_crx_control', executable='interpolation_node', output='screen',
+        parameters=[{'input_rate_hz': 20.0, 'method': LaunchConfiguration('method')}])
+    actions = [interpolation]
     for side in ('left', 'right'):
         description = ParameterValue(arm_description(
             xacro_path, side, LaunchConfiguration(f'{side}_robot_ip').perform(context), mock),
@@ -72,9 +44,9 @@ def launch_setup(context):
         ])
     actions.append(Node(
         package='dual_crx_control', executable='teleop_bridge', output='screen',
-        parameters=[{
+        parameters=[{'input_rate_hz': 20.0}, {
             name: ParameterValue(LaunchConfiguration(name), value_type=float)
-            for name in ('state_publish_rate', 'command_timeout')
+            for name in ('state_publish_rate',)
         }]))
     # One combined model owns global TF; each driver's single-arm TF stays private.
     combined_description = ParameterValue(Command([
@@ -103,6 +75,6 @@ def generate_launch_description():
         DeclareLaunchArgument('left_robot_ip', default_value='192.168.2.100'),
         DeclareLaunchArgument('right_robot_ip', default_value='192.168.1.100'),
         DeclareLaunchArgument('state_publish_rate', default_value='100.0'),
-        DeclareLaunchArgument('command_timeout', default_value='0.2'),
+        DeclareLaunchArgument('method', default_value='linear', choices=['linear', 'cubic']),
         OpaqueFunction(function=launch_setup),
     ])

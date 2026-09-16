@@ -2,7 +2,6 @@
 
 from functools import partial
 import math
-import time
 
 import rclpy
 from rclpy.clock import Clock, ClockType
@@ -11,6 +10,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
+from dual_crx_control.interpolation_client import JointTargetClient
 
 
 SIDES = ('left', 'right')
@@ -21,53 +21,41 @@ class TeleopBridge(Node):
     def __init__(self, **kwargs):
         super().__init__('teleop_bridge', **kwargs)
         rate = self.declare_parameter('state_publish_rate', 100.0).value
-        self.command_timeout = self.declare_parameter('command_timeout', 0.2).value
-        for name, value in (('state_publish_rate', rate),
-                            ('command_timeout', self.command_timeout)):
-            if not math.isfinite(value) or value <= 0:
-                raise ValueError(f'{name} must be finite and positive')
+        if not math.isfinite(rate) or rate <= 0:
+            raise ValueError('state_publish_rate must be finite and positive')
 
         self.states = {}
-        self.last_command_time = None
-        self.command_timed_out = False
+        self.input_rate = self.declare_parameter('input_rate_hz', 20.0).value
+        if self.input_rate != 20.0:
+            raise ValueError('teleoperation input_rate_hz is fixed at 20 Hz')
+        self.target_client = JointTargetClient(self, self.input_rate)
+        self.pending_command = None
+        self.create_timer(1.0 / self.input_rate, self.send_target,
+                          clock=Clock(clock_type=ClockType.STEADY_TIME))
         self.arm_publishers = {}
         for side in SIDES:
-            command_topic = self.declare_parameter(
-                f'{side}_command_topic', f'/{side}/forward_position_controller/commands').value
             state_topic = self.declare_parameter(
                 f'{side}_joint_state_topic', f'/{side}/joint_states').value
-            self.arm_publishers[side] = self.create_publisher(
-                Float64MultiArray, command_topic, 1)
+            self.arm_publishers[side] = self.target_client.arm_publisher(side)
             self.create_subscription(JointState, state_topic, partial(self.receive_state, side),
                                      qos_profile_sensor_data)
         self.create_subscription(Float64MultiArray, '/teleop/joint_command',
                                  self.receive_command, 1)
         self.state_publisher = self.create_publisher(JointState, '/teleop/joint_states', 1)
-        self.create_timer(1.0 / rate, self.publish_state)
-        # The timeout must still run when a simulated ROS clock is paused.
-        self.watchdog_clock = Clock(clock_type=ClockType.STEADY_TIME)
-        self.create_timer(min(self.command_timeout / 2.0, 0.1), self.check_timeout,
-                          clock=self.watchdog_clock)
-
+        self.create_timer(1.0 / rate, self.publish_state,
+                          clock=Clock(clock_type=ClockType.STEADY_TIME))
     def receive_command(self, message):
         if len(message.data) != 12 or not all(math.isfinite(q) for q in message.data):
             self.get_logger().warning('Rejected command: expected exactly 12 finite radians.',
                                       throttle_duration_sec=2.0)
             return
-        self.last_command_time = time.monotonic()
-        self.command_timed_out = False
-        # Forward once per accepted sample. No timer replays old commands.
-        for index, side in enumerate(SIDES):
-            self.arm_publishers[side].publish(
-                Float64MultiArray(data=message.data[index * 6:(index + 1) * 6]))
+        self.pending_command = list(message.data)
 
-    def check_timeout(self):
-        if (self.last_command_time is not None and not self.command_timed_out
-                and time.monotonic() - self.last_command_time >= self.command_timeout):
-            self.command_timed_out = True
-            self.get_logger().warning(
-                'Teleoperation command timeout; no commands sent until a new valid sample.',
-                throttle_duration_sec=2.0)
+    def send_target(self):
+        if self.pending_command is None or not self.target_client.available():
+            return
+        data, self.pending_command = self.pending_command, None
+        self.target_client.publish({s: data[i*6:(i+1)*6] for i, s in enumerate(SIDES)})
 
     def receive_state(self, side, message):
         indices = {name: index for index, name in enumerate(message.name)}

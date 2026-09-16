@@ -3,12 +3,12 @@
 
 import numpy as np
 
-from dual_crx_control.cartesian_controller import DualCartesianController, main as run_controller
+from motion.cartesian_controller import DualCartesianController, main as run_controller
 from dual_crx_control.circular_trajectory import CircularTrajectory
 from dual_crx_control.motion_recording import MotionRecording
-from dual_crx_control.facing_circle import (facing_start_poses, solve_facing_start,
+from motion.facing_circle import (facing_start_poses, solve_facing_start,
                                            check_joint_approach, scaled_min_singular_value)
-from dual_crx_control.startup_motion import InitialJointMove
+from motion.startup_motion import InitialJointMove
 
 
 class DualCircleController(DualCartesianController):

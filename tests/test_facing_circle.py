@@ -6,12 +6,12 @@ import numpy as np
 import pytest
 import xacro
 
-from dual_crx_control.facing_circle import (facing_start_poses, solve_facing_start,
+from motion.facing_circle import (facing_start_poses, solve_facing_start,
                                            check_joint_approach, scaled_min_singular_value)
 from dual_crx_control.kinematics import CRXKinematics
 from dual_crx_control.ik_solver import DampedLeastSquaresIK, pose_error
 from dual_crx_control.circular_trajectory import CircularTrajectory
-from dual_crx_control.startup_motion import INITIAL_JOINTS_DEG
+from motion.startup_motion import INITIAL_JOINTS_DEG
 
 ROOT = Path(__file__).resolve().parents[1]
 

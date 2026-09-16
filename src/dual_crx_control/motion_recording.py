@@ -21,6 +21,8 @@ class MotionRecording:
         self.started_at = None
         self.origins = {}
         self.commands = deque(maxlen=max_samples)
+        self.targets = deque(maxlen=max_samples)
+        self.target_count = 0
         self.feedback = {s: deque(maxlen=max_samples) for s in ('left', 'right')}
         self.command_count = 0
         self.feedback_count = dict.fromkeys(self.feedback, 0)
@@ -37,6 +39,12 @@ class MotionRecording:
                                   np.array([joints[s] for s in ('left', 'right')], copy=True)))
             self.command_count += 1
 
+    def target(self, received_at, joints):
+        if self.started_at is not None:
+            self.targets.append((received_at - self.started_at,
+                                 np.array([joints[s] for s in ('left', 'right')], copy=True)))
+            self.target_count += 1
+
     def measured(self, side, received_at, joints, stamp):
         if self.started_at is not None:
             self.feedback[side].append((received_at - self.started_at, joints.copy(), stamp))
@@ -51,7 +59,7 @@ class MotionRecording:
         label = f'circle_{self.plane}' if self.plane else f'axis_{"xyz"[self.axis]}'
         name = f'{label}_{datetime.now():%Y%m%d_%H%M%S_%f}'
         png, csv_path, metadata_path = [output / (name + ext) for ext in ('.png', '.csv', '.json')]
-        series = {side: {'command': [], 'feedback': []} for side in self.feedback}
+        series = {side: {'target': [], 'command': [], 'feedback': []} for side in self.feedback}
         with csv_path.open('w', newline='') as stream:
             writer = csv.writer(stream)
             writer.writerow(['arm', 'source', 'time_s', 'feedback_ros_stamp_s',
@@ -61,7 +69,8 @@ class MotionRecording:
                              *[f'J{i}_rad' for i in range(1, 7)]])
             for i, side in enumerate(self.feedback):
                 data = [(t, q[i], '') for t, q in self.commands]
-                for source, rows in [('command', data), ('feedback', self.feedback[side])]:
+                for source, rows in [('target', [(t, q[i], '') for t, q in self.targets]),
+                                     ('command', data), ('feedback', self.feedback[side])]:
                     for t, q, stamp in rows:
                         pose = models[side].fk(q)
                         value = float(pose[self.axis, 3])
@@ -104,12 +113,13 @@ class MotionRecording:
         metadata = {
             'axis': 'xyz'[self.axis], 'initial_world_axis_m': self.origins,
             'plane': self.plane, 'initial_world_second_axis_m': self.second_origins,
-            'time_basis': 'local monotonic publication / feedback receipt time',
+            'time_basis': 'local monotonic target publication / interpolation sample time / feedback receipt time',
+            'target_samples': len(self.targets), 'target_samples_total': self.target_count,
             'measurement': 'FK of joint feedback; not an external TCP measurement',
             'command_samples': len(self.commands), 'command_samples_total': self.command_count,
             'feedback_samples': {s: len(rows) for s, rows in self.feedback.items()},
             'feedback_samples_total': self.feedback_count,
-            'recording_truncated': (self.command_count > len(self.commands) or any(
+            'recording_truncated': (self.target_count > len(self.targets) or self.command_count > len(self.commands) or any(
                 self.feedback_count[s] > len(rows) for s, rows in self.feedback.items())),
         }
         metadata_path.write_text(json.dumps(metadata, indent=2) + '\n')

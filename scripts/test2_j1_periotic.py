@@ -7,6 +7,8 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from dual_crx_control.interpolation_client import JointTargetClient
+from dual_crx_control.joint_config import canonical_side
 
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
@@ -15,7 +17,7 @@ from std_msgs.msg import Float64MultiArray
 AMPLITUDE_DEG = 20.0
 RUN_TIME = 10.0
 MOTION_PERIOD = 4.0
-RATE_HZ = 500.0
+RATE_HZ = 50.0
 DEFAULT_JOINT = 1
 INITIAL_HOLD_TIME = 1.0
 RAMP_TIME = 1.0
@@ -67,16 +69,13 @@ class JointTest(Node):
 
         self.create_subscription(
             JointState,
-            '/joint_states',
+            '/left/joint_states',
             self.joint_state_callback,
             10
         )
 
-        self.publisher = self.create_publisher(
-            Float64MultiArray,
-            '/forward_position_controller/commands',
-            10
-        )
+        self.target_client = JointTargetClient(self, rate_hz, [''])
+        self.publisher = self.target_client.arm_publisher('')
 
     def joint_state_callback(self, msg):
         self.current_joint_state = msg
@@ -102,7 +101,7 @@ class JointTest(Node):
         )
 
     def wait_for_joint_state(self):
-        self.get_logger().info('Waiting for /joint_states ...')
+        self.get_logger().info('Waiting for /left/joint_states ...')
 
         while rclpy.ok() and self.current_joint_state is None:
             rclpy.spin_once(self, timeout_sec=0.1)
@@ -190,7 +189,8 @@ class JointTest(Node):
             msg.data = command
             self.publisher.publish(msg)
 
-            rclpy.spin_once(self, timeout_sec=0.0)
+            for _callback in range(8):
+                rclpy.spin_once(self, timeout_sec=0.0)
             history['time'].append(elapsed)
             history['command'].append(command[self.joint_index])
             history['state'].append(self.current_joint_position())
@@ -217,7 +217,8 @@ class JointTest(Node):
 
             self.publisher.publish(msg)
 
-            rclpy.spin_once(self, timeout_sec=0.0)
+            for _callback in range(8):
+                rclpy.spin_once(self, timeout_sec=0.0)
             history['time'].append(elapsed)
             history['command'].append(command[self.joint_index])
             history['state'].append(self.current_joint_position())
@@ -229,7 +230,8 @@ class JointTest(Node):
 
         for _ in range(100):
             self.publisher.publish(msg)
-            rclpy.spin_once(self, timeout_sec=0.0)
+            for _callback in range(8):
+                rclpy.spin_once(self, timeout_sec=0.0)
             time.sleep(sample_period)
 
         self.get_logger().info('Motion complete.')

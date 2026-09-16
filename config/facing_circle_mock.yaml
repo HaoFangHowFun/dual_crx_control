@@ -10,7 +10,6 @@ dual_test_6_cartesian_circle_motion:
     cycles: 10
     max_velocity: 2.0
     rate: 50.0
-    command_rate: 500.0
     face_each_other: true
     tcp_gap: 0.2
     center_midpoint:

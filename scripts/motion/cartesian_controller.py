@@ -10,21 +10,22 @@ import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.clock import Clock, ClockType
 from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Float64MultiArray, String
+from std_msgs.msg import String
 
 from dual_crx_control.kinematics import CRXKinematics
 from dual_crx_control.ik_solver import DampedLeastSquaresIK
-from dual_crx_control.startup_motion import INITIAL_JOINTS_DEG, InitialJointMove
-from dual_crx_control.interpolation import linear_interpolate
+from motion.startup_motion import INITIAL_JOINTS_DEG, InitialJointMove
+from dual_crx_control.interpolation_client import JointTargetClient
 from dual_crx_control.motion_recording import MotionRecording
 
 
 class DualCartesianController(Node):
     def __init__(self, *, node_name='dual_test_5_cartesion_sychro_motion', motion_defaults=None, **kwargs):
         super().__init__(node_name, **kwargs)
-        defaults = dict(rate=50., command_rate=500., max_target_step=0.1,
+        defaults = dict(rate=50., max_target_step=0.1,
                         amplitude=0.02, period=4., axis='x', ramp_time=1.,
                         state_timeout=0.25, ready_timeout=10., max_cycle_step=0.03,
                         max_velocity=0.5, damping=0.01, position_tolerance=1e-5,
@@ -45,8 +46,6 @@ class DualCartesianController(Node):
                 raise ValueError(f'{key} must be finite and positive (amplitude/ramp may be zero)')
         if p['axis'] not in ('x', 'y', 'z'):
             raise ValueError('axis must be x, y, or z')
-        if p['command_rate'] < p['rate']:
-            raise ValueError('command_rate must be >= rate (the IK rate)')
         if not isinstance(p['cycles'], int) or isinstance(p['cycles'], bool):
             raise ValueError('cycles must be a nonnegative integer; zero repeats indefinitely')
         if p['cycles'] and p['ramp_time'] <= 0:
@@ -69,6 +68,7 @@ class DualCartesianController(Node):
         self.description = ''
         self.solvers = {}
         self.arm_publishers = {}
+        self.target_client = JointTargetClient(self, p['rate'])
         self.positions, self.received = {}, {}
         self.starts = None
         self.previous = {}
@@ -76,11 +76,7 @@ class DualCartesianController(Node):
         self.finished = False
         self.started_at = None
         self.last_publish = None
-        self.segment_start = None
         self.segment_target = None
-        self.segment_start_time = None
-        self.next_target_time = None
-        self.target_tick_time = None
         self.ik_dt = 1. / p['rate']
         self.command_count = 0
         self.ik_count = 0
@@ -90,7 +86,7 @@ class DualCartesianController(Node):
         self.last_rejection_time = -math.inf
         self.cartesian_complete = False
         self.created_at = time.monotonic()
-        self.timer = self.create_timer(1. / p['command_rate'], self.cycle)
+        self.timer = self.create_timer(self.ik_dt, self.cycle, clock=Clock(clock_type=ClockType.STEADY_TIME))
         if description:
             self.configure_model(description)
         else:
@@ -98,8 +94,9 @@ class DualCartesianController(Node):
                 String, '/robot_description', self.description_callback,
                 QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.get_logger().info('Waiting for robot description, both joint states, and command subscribers...')
-        self.get_logger().info(f"IK rate: {p['rate']} Hz; command rate: {p['command_rate']} Hz; "
-                               f'segment time: {1000 * self.ik_dt:g} ms; interpolation: linear')
+        self.get_logger().info(f"Joint target rate: {p['rate']} Hz; output owned by interpolation node")
+        self.create_subscription(JointState, '/interpolation/joint_commands', self.record_command, 10)
+
 
     def description_callback(self, message):
         if self.failed or self.finished:
@@ -125,8 +122,7 @@ class DualCartesianController(Node):
                 model, damping=p['damping'], position_tolerance=p['position_tolerance'],
                 orientation_tolerance=p['orientation_tolerance'], max_iterations=p['max_iterations'],
                 max_joint_step=p['ik_max_joint_step'], alpha=p['ik_alpha'])
-            self.arm_publishers[side] = self.create_publisher(
-                Float64MultiArray, f'/{side}/forward_position_controller/commands', 1)
+            self.arm_publishers[side] = self.target_client.arm_publisher(side)
             self.create_subscription(JointState, f'/{side}/joint_states',
                                      partial(self.feedback, side), qos_profile_sensor_data)
         self.description = description
@@ -135,7 +131,7 @@ class DualCartesianController(Node):
         if not self.failed:
             self.failed = True
             self.timer.cancel()
-            self.get_logger().error(f'ABORT: {reason}; no further commands to either arm. Restart required.')
+            self.get_logger().error(f'ABORT: {reason}; no further targets; interpolation holds the last accepted endpoint. Restart required.')
 
     def feedback(self, side, message):
         if len(message.name) != len(message.position) or len(set(message.name)) != len(message.name):
@@ -170,39 +166,13 @@ class DualCartesianController(Node):
                 return f'{side}: missing command subscriber'
         return None
 
-    def check_command(self, side, q, dt):
-        if not self.models[side].valid_joints(q):
-            raise ValueError(f'{side}: invalid IK result / joint-limit violation')
-        delta = np.abs(q - self.previous[side])
-        if np.any(delta > self.settings['max_cycle_step']):
-            raise ValueError(f'{side}: per-cycle joint step violation ({delta.max():.6g} rad)')
-        velocity = delta / dt
-        if np.any(velocity > np.minimum(self.models[side].velocity, self.settings['max_velocity'])):
-            raise ValueError(f'{side}: commanded velocity violation ({velocity.max():.6g} rad/s)')
-
     def cycle(self):
         if self.failed or self.finished:
             return
         try:
-            now = time.monotonic()
-            if self.next_target_time is None:
-                self.next_target_time = now
-            if now >= self.next_target_time and not self.cartesian_complete:
-                # Fixed schedule: skip missed slots, never run catch-up IK bursts.
-                missed = math.floor((now - self.next_target_time) / self.ik_dt)
-                self.target_tick_time = self.next_target_time + missed * self.ik_dt
-                self.next_target_time = self.target_tick_time + self.ik_dt
-                self._cycle()
-            if self.failed or self.segment_target is None:
-                return
-            phase = (time.monotonic() - self.segment_start_time) / self.ik_dt
-            # Stack both arms: the same scalar phase is applied to the pair.
-            pair = linear_interpolate(self.segment_start, self.segment_target, phase)
-            self.publish_pair(dict(zip(('left', 'right'), pair)))
-            if self.cartesian_complete and phase >= 1.:
-                self.finished = True
-                self.timer.cancel()
-                self.get_logger().info('Finite motion finished at the initial TCP targets; command stream stopped.')
+            if self.cartesian_complete:
+                return  # The output subscription observes the last joint target.
+            self._cycle()
         except (ValueError, RuntimeError, np.linalg.LinAlgError) as exc:
             self.abort(str(exc))
 
@@ -226,9 +196,8 @@ class DualCartesianController(Node):
                                                      self.settings['max_velocity'])):
                 raise ValueError(f'{side}: target segment exceeds commanded joint velocity limit')
         # Commit the entire pair only after all validation succeeds.
-        self.segment_start = old.copy()
         self.segment_target = pair.copy()
-        self.segment_start_time = self.target_tick_time
+        self.publish_pair(commands)
 
     def initial_move_cycle(self, now):
         """Return true only after both arms have reached and held their targets."""
@@ -296,9 +265,7 @@ class DualCartesianController(Node):
             if self.save_plot:
                 self.recording.begin(now, self.starts)
             if self.segment_target is None:
-                self.segment_start = np.array([self.previous[s] for s in ('left', 'right')])
-                self.segment_target = self.segment_start.copy()
-                self.segment_start_time = self.target_tick_time
+                self.segment_target = np.array([self.previous[s] for s in ('left', 'right')])
             for side in self.models:
                 self.get_logger().info(f'{side} initial q [rad]: {self.previous[side].tolist()}')
                 self.get_logger().info(f'{side} initial TCP in world (4x4):\n{self.starts[side]}')
@@ -364,24 +331,30 @@ class DualCartesianController(Node):
         return offset
 
     def publish_pair(self, commands):
-        # Recheck freshness after solving, and use actual inter-command time for velocity.
-        publish_time = time.monotonic()
-        error = self.readiness_error(publish_time)
-        if error and self.starts is None:
-            raise ValueError(error)
-        dt = publish_time - self.last_publish if self.last_publish is not None else 1. / self.settings['command_rate']
-        for side, q in commands.items():
-            self.check_command(side, q, dt)
-        messages = {s: Float64MultiArray(data=q.tolist()) for s, q in commands.items()}
-        self.arm_publishers['left'].publish(messages['left'])
-        self.arm_publishers['right'].publish(messages['right'])
-        self.previous = commands
-        self.last_publish = publish_time
+        self.target_client.publish(commands)
+        if self.save_plot:
+            self.recording.target(time.monotonic(), commands)
+        self.previous = {s: q.copy() for s, q in commands.items()}
+
+    def record_command(self, message):
+        if self.finished or self.failed or not self.models:
+            return
+        by_name = dict(zip(message.name, message.position))
+        if any(n not in by_name for model in self.models.values() for n in model.joint_names):
+            return
+        commands = {s: np.array([by_name[n] for n in m.joint_names]) for s, m in self.models.items()}
+        now = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+        self.last_publish = now
         self.command_count += 1
         if self.first_command_time is None:
-            self.first_command_time = publish_time
+            self.first_command_time = now
         if self.save_plot:
-            self.recording.command(publish_time, commands)
+            self.recording.command(now, commands)
+        if self.cartesian_complete and all(
+                np.array_equal(commands[s], self.segment_target[i]) for i, s in enumerate(('left', 'right'))):
+            self.finished = True
+            self.timer.cancel()
+            self.get_logger().info('Finite motion finished; interpolation keeps holding the last joint target.')
 
     def report_rates(self):
         command_span = (self.last_publish or 0.) - (self.first_command_time or 0.)
@@ -420,6 +393,9 @@ def main(controller_type=DualCartesianController):
                     print('Saved motion data: ' + str(paths[1]), flush=True)
             except Exception as exc:
                 print(f'Could not save motion plot/data: {exc}', flush=True)
+
+    if node is not None and node.failed:
+        raise SystemExit(1)
 
 
 if __name__ == '__main__':

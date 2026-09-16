@@ -79,9 +79,9 @@ def main():
     try:
         with (OUTPUT / 'launch.log').open('w') as log, (OUTPUT / 'motion.log').open('w') as motion_log:
             process = subprocess.Popen(
-                ['ros2', 'launch', 'dual_crx_control', 'dual_cartesian_mock.launch.py'],
+                ['ros2', 'launch', 'dual_crx_control', 'dual_arm.launch.py', 'mock:=true', 'rviz:=false'],
                 stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-            deadline = time.monotonic() + 3
+            deadline = time.monotonic() + 12
             while time.monotonic() < deadline:
                 rclpy.spin_once(node, timeout_sec=.02)
                 assert process.poll() is None, 'Launch exited unexpectedly'
@@ -97,14 +97,13 @@ def main():
             motion = subprocess.Popen([str(executable), '--ros-args', '-p',
                                        f'output_dir:={OUTPUT / "motion_plots"}'], stdout=motion_log,
                                       stderr=subprocess.STDOUT, start_new_session=True)
-            deadline = time.monotonic() + 13
+            deadline = time.monotonic() + 18
             while time.monotonic() < deadline:
                 rclpy.spin_once(node, timeout_sec=.02)
                 assert process.poll() is None, 'Launch exited unexpectedly'
                 assert motion.poll() is None, 'Motion script exited unexpectedly'
             text = (OUTPUT / 'launch.log').read_text() + (OUTPUT / 'motion.log').read_text()
             assert 'ABORT' not in text and 'process has died' not in text, text
-            assert 'OpenGl version' in text, 'RViz did not initialize rendering'
             assert all(len(v) > 5000 for v in commands.values()), 'Insufficient command pairs'
             assert combined and len(combined[-1].name) == 12
             metrics = {'bringup_without_commands': 'passed'}
@@ -158,7 +157,7 @@ def main():
             while time.monotonic() < until:
                 rclpy.spin_once(node, timeout_sec=.02)
             for side in INITIAL:
-                assert len(commands[side]) == counts[side]
+                assert len(commands[side]) > counts[side] + 200
                 assert len(records[side]) - start_indices[side] > 20
                 for _, q, _ in records[side][start_indices[side]:]:
                     np.testing.assert_array_equal(q, held[side])

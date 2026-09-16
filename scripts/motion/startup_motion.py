@@ -5,10 +5,7 @@ import math
 import numpy as np
 
 
-INITIAL_JOINTS_DEG = {
-    'left': [0., 0., 0., 0., -90., 0.],
-    'right': [-90., 0., 180., 0., 90., 0.],
-}
+from dual_crx_control.joint_config import INITIAL_JOINTS_DEG
 
 
 class InitialJointMove:

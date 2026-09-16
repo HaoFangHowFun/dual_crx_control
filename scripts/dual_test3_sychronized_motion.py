@@ -8,6 +8,8 @@ from functools import partial
 
 import rclpy
 from rclpy.node import Node
+from dual_crx_control.interpolation_client import JointTargetClient
+from dual_crx_control.joint_config import canonical_side
 from rclpy.qos import qos_profile_sensor_data
 
 from sensor_msgs.msg import JointState
@@ -17,9 +19,9 @@ from std_msgs.msg import Float64MultiArray
 AMPLITUDE_DEG = 20.0
 RUN_TIME = 10.0
 MOTION_PERIOD = 4.0
-RATE_HZ = 500.0
+RATE_HZ = 50.0
 DEFAULT_JOINT = 1
-DEFAULT_ROBOT_NAMESPACES = ('robot1', 'robot2')
+DEFAULT_ROBOT_NAMESPACES = ('right', 'left')
 INITIAL_HOLD_TIME = 1.0
 RAMP_TIME = 1.0
 PLOT_FILE_TEMPLATE = 'dual_j{joint}_periodic_response.png'
@@ -28,7 +30,7 @@ READY_TIMEOUT = 10.0
 
 
 def clean_namespace(namespace):
-    return namespace.strip('/')
+    return canonical_side(namespace)
 
 
 def namespaced_topic(robot_namespace, topic):
@@ -93,6 +95,7 @@ class JointTest(Node):
         self.show_plot = show_plot
         self.positions = {}
         self.state_received_at = {}
+        self.target_client = JointTargetClient(self, rate_hz, robot_namespaces)
         self.command_publishers = {}
         for ns in robot_namespaces:
             self.create_subscription(
@@ -101,11 +104,7 @@ class JointTest(Node):
                 partial(self.joint_state_callback, ns),
                 qos_profile_sensor_data,
             )
-            self.command_publishers[ns] = self.create_publisher(
-                Float64MultiArray,
-                namespaced_topic(ns, 'forward_position_controller/commands'),
-                1,
-            )
+            self.command_publishers[ns] = self.target_client.arm_publisher(ns)
 
     def joint_state_callback(self, namespace, msg):
         # Controller commands must be ordered J1..J6, regardless of feedback order.
@@ -129,7 +128,7 @@ class JointTest(Node):
         ]
 
     def process_feedback(self):
-        for _ in range(2 * len(self.robot_namespaces)):
+        for _ in range(16):
             rclpy.spin_once(self, timeout_sec=0.0)
 
     def amplitude_scale(self, elapsed):

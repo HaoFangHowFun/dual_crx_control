@@ -240,7 +240,7 @@ colcon build --symlink-install --packages-select fanuc_libs fanuc_hardware_inter
 source install/setup.bash
 export FANUC_LATENCY_DIR="$HOME/ws_fanuc/src/dual_crx_control/test_results/latency/trial_01"
 mkdir -p "$FANUC_LATENCY_DIR"
-ros2 launch dual_crx_control dual_cartesian.launch.py
+ros2 launch dual_crx_control dual_arm.launch.py mock:=false
 ```
 
 Retain the startup PID/namespace mapping for the two `ros2_control_node` processes.

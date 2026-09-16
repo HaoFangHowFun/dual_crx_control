@@ -30,3 +30,6 @@ test_results/
 
 # Published latency report figures
 !docs/latency/*.png
+
+# Local motion recordings
+cartesian_motion_results/

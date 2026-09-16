@@ -10,7 +10,13 @@ find_package(ament_cmake_python REQUIRED)
 
 ament_python_install_package(${PROJECT_NAME} PACKAGE_DIR src/${PROJECT_NAME})
 
+ament_python_install_package(motion PACKAGE_DIR scripts/motion)
+
 install(PROGRAMS
+  scripts/interpolation_node
+  scripts/test2_j1_periotic.py
+  scripts/dual_test3_sychronized_motion.py
+  scripts/dual_test3_sychronized_motion_infinite.py
   scripts/dual_test_5_cartesion_sychro_motion.py
   scripts/dual_test_6_cartesian_circle_motion.py
   scripts/dual_test_7_cartesian_facing_circle_motion.py
@@ -33,6 +39,12 @@ if(BUILD_TESTING)
     TIMEOUT 60
   )
   ament_add_pytest_test(interpolation tests/test_interpolation.py TIMEOUT 30)
+  ament_add_pytest_test(interpolation_node tests/test_interpolation_node.py TIMEOUT 120
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1)
+  ament_add_pytest_test(dual_test4_transport tests/test_dual_test4_transport.py TIMEOUT 30
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1)
+  ament_add_pytest_test(motion_routes tests/test_motion_routes.py TIMEOUT 60
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1)
   ament_add_pytest_test(circle tests/test_circle.py
     ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST TIMEOUT 60)
   ament_add_pytest_test(facing_circle tests/test_facing_circle.py TIMEOUT 60)
@@ -54,6 +66,7 @@ install(
     rviz
     config
   DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
 )
 
 ament_package()

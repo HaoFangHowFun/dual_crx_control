@@ -12,11 +12,11 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 
 from dual_crx_control.circular_trajectory import CircularTrajectory
-from dual_crx_control.facing_circle import (facing_start_poses, solve_facing_start,
+from motion.facing_circle import (facing_start_poses, solve_facing_start,
                                            check_joint_approach, scaled_min_singular_value)
 from dual_crx_control.kinematics import CRXKinematics
 from dual_crx_control.ik_solver import DampedLeastSquaresIK
-from dual_crx_control.startup_motion import INITIAL_JOINTS_DEG
+from motion.startup_motion import INITIAL_JOINTS_DEG
 
 
 def evaluate(models, solvers, home, midpoint, gap, fine=False):
@@ -88,7 +88,7 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / 'search_report.json').write_text(json.dumps(report, indent=2) + '\n')
     params = {'radius': .1, 'plane': 'xz', 'direction': 'cw', 'period': 4., 'cycles': 10,
-              'max_velocity': 2., 'rate': 50., 'command_rate': 500., 'face_each_other': True,
+              'max_velocity': 2., 'rate': 50., 'face_each_other': True,
               'tcp_gap': args.gap, 'center_midpoint': selected['center_midpoint_m'],
               'minimum_scaled_sigma': .1}
     (args.output_dir / 'facing_circle_mock.yaml').write_text(yaml.safe_dump(
