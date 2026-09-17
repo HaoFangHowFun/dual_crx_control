@@ -18,28 +18,21 @@ pybind11_add_module(_ruckig src/ruckig_binding.cpp)
 target_link_libraries(_ruckig PRIVATE ruckig::ruckig)
 install(TARGETS _ruckig LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}")
 
-ament_python_install_package(motion PACKAGE_DIR scripts/motion)
-
 install(PROGRAMS
   scripts/interpolation_node
-  scripts/test2_j1_periotic.py
-  scripts/dual_test3_sychronized_motion.py
-  scripts/dual_test3_sychronized_motion_infinite.py
-  scripts/dual_test_5_cartesion_sychro_motion.py
-  scripts/dual_test_6_cartesian_circle_motion.py
-  scripts/dual_test_7_cartesian_facing_circle_motion.py
-  scripts/search_facing_circle.py
-  scripts/dual_test2_periodic.py
+  scripts/joint_sine.py
+  scripts/cartesian_sine.py
+  scripts/cartesian_circle.py
+  scripts/facing_circle.py
   scripts/record_teleoperation.py
   scripts/simple_motion.py
   scripts/analyze_latency.py
-  scripts/dual_mock_robot.py
   scripts/teleop_bridge
   DESTINATION lib/${PROJECT_NAME}
 )
 
 # Tests are kept locally and may be absent from a fresh checkout.
-if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cartesian.py")
   find_package(ament_lint_auto REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
 
@@ -71,6 +64,12 @@ if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
   set(ament_cmake_cpplint_FOUND TRUE)
 
   ament_lint_auto_find_test_dependencies()
+endif()
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(motion_refactor tools/test_motion_refactor.py TIMEOUT 60
+    ENV PYTHONDONTWRITEBYTECODE=1 OPENBLAS_NUM_THREADS=1 MPLCONFIGDIR=/tmp/dual_crx_matplotlib)
 endif()
 
 install(

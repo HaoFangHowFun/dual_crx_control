@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Offline, URDF-only search for well-conditioned facing circles. No ROS nodes."""
+"""Offline, URDF-only search for well-conditioned facing circles. No ROS nodes.
+
+From the repository root, after building and sourcing ROS and the workspace:
+    python3 tools/search_facing_circle.py --help
+    python3 tools/search_facing_circle.py --gap 0.2 --output-dir test_results/facing_circle
+
+Uses the installed dual_crx_control URDF and left_/right_ joint prefixes.
+Writes search_report.json and facing_circle_mock.yaml. Gap is in metres.
+This development tool is not installed as a ros2 run executable. It sends no
+motion commands; its kinematic checks do not include tool/link collisions.
+"""
 
 import argparse
 import itertools
@@ -12,11 +22,11 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 
 from dual_crx_control.circular_trajectory import CircularTrajectory
-from motion.facing_circle import (facing_start_poses, solve_facing_start,
+from dual_crx_control.motion.facing_circle import (facing_start_poses, solve_facing_start,
                                            check_joint_approach, scaled_min_singular_value)
 from dual_crx_control.kinematics import CRXKinematics
 from dual_crx_control.ik_solver import DampedLeastSquaresIK
-from motion.startup_motion import INITIAL_JOINTS_DEG
+from dual_crx_control.motion.startup_motion import INITIAL_JOINTS_DEG
 
 
 def evaluate(models, solvers, home, midpoint, gap, fine=False):
@@ -92,7 +102,7 @@ def main():
               'tcp_gap': args.gap, 'center_midpoint': selected['center_midpoint_m'],
               'minimum_scaled_sigma': .1}
     (args.output_dir / 'facing_circle_mock.yaml').write_text(yaml.safe_dump(
-        {'dual_test_6_cartesian_circle_motion': {'ros__parameters': params}}, sort_keys=False))
+        {'cartesian_circle': {'ros__parameters': params}}, sort_keys=False))
     print(json.dumps({'selected': selected, 'baseline': reference}, indent=2))
 
 

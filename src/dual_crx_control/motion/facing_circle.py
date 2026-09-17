@@ -1,4 +1,4 @@
-"""Facing TCP poses and numerical conditioning checks for mock circle placement."""
+"""Facing TCP poses and numerical conditioning checks for circle placement."""
 
 import numpy as np
 from scipy.spatial.transform import Rotation, Slerp

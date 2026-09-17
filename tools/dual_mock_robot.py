@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Ideal position mock: hold the last accepted command indefinitely on shutdown."""
+"""Ideal position mock: hold the last accepted command when commands stop.
+
+After sourcing ROS and the built workspace, from the repository root:
+    python3 tools/dual_mock_robot.py --ros-args --params-file /path/to/mock.yaml
+
+The parameter file must provide robot_description with the combined dual-arm URDF.
+Joint prefixes are left_ and right_. This tool subscribes to each arm's forward
+position controller commands and publishes joint states; it has no hardware driver.
+Run tools/smoke_motion.py to generate the description and exercise the full mock flow.
+"""
 
 from functools import partial
 

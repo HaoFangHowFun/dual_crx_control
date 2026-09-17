@@ -1,6 +1,6 @@
 """Record published joints and received feedback; compute TCP plots after motion."""
 
-from collections import deque
+from collections import Counter, deque
 import csv
 from datetime import datetime
 import json
@@ -13,8 +13,11 @@ import numpy as np
 class JointRecording:
     """Stream joint samples to CSV and draw one six-joint figure per arm."""
 
-    def __init__(self, output_dir, target_source='telebridge'):
+    def __init__(self, output_dir, target_source='telebridge', arms=('left', 'right')):
         self.target_source = target_source
+        self.arms = tuple(arms)
+        self.counts = Counter()
+        self.saved_paths = None
         self.started_at = time.monotonic()
         self.output = Path(output_dir).expanduser().resolve() / datetime.now().strftime('%Y%m%d_%H%M%S_%f')
         self.output.mkdir(parents=True)
@@ -25,30 +28,47 @@ class JointRecording:
         self.flush()
 
     def add(self, received_at, arm, source, joints):
+        if self.stream.closed:
+            return
         self.writer.writerow([received_at - self.started_at, arm, source, *joints])
+        self.counts[arm, source] += 1
 
     def flush(self):
-        self.stream.flush()
+        if not self.stream.closed:
+            self.stream.flush()
 
     def close(self):
         self.stream.close()
 
-    def save(self):
-        """Close the CSV before importing matplotlib or generating plots."""
+    def save(self, *, response_joint=None, plot_file=None, show_plot=False):
+        """Keep the full CSV; plot up to 10k sampled points plus the final point per trace."""
+        if self.saved_paths is not None:
+            return self.saved_paths
         self.close()
         sources = (self.target_source, 'interpolated', 'feedback')
-        series = {arm: {source: [] for source in sources} for arm in ('left', 'right')}
+        series = {arm: {source: [] for source in sources} for arm in self.arms}
+        seen = Counter()
         with self.csv_path.open(newline='') as stream:
             for row in csv.DictReader(stream):
+                key = row['arm'], row['source']
+                if key[0] not in series or key[1] not in sources:
+                    continue
+                seen[key] += 1
+                stride = max(1, (self.counts[key] + 9999) // 10000)
+                if (seen[key] - 1) % stride and seen[key] != self.counts[key]:
+                    continue
                 series[row['arm']][row['source']].append(
                     [float(row['time_s']), *[float(row[f'J{i}_rad']) for i in range(1, 7)]])
 
         import matplotlib
-        matplotlib.use('Agg')
+        if not show_plot:
+            matplotlib.use('Agg')
         import matplotlib.pyplot as plt
 
         paths = [self.csv_path]
         for arm, streams in series.items():
+            if not any(streams.values()):
+                continue
             fig, axes = plt.subplots(3, 2, figsize=(13, 9), sharex=True)
             try:
                 for source, label, style in (
@@ -75,9 +95,32 @@ class JointRecording:
                 path = self.output / f'{arm}_joints.png'
                 fig.savefig(path, dpi=150)
                 paths.append(path)
+                if show_plot:
+                    plt.show()
             finally:
                 plt.close(fig)
-        return tuple(paths)
+        if response_joint is not None and plot_file is not None:
+            path = Path(plot_file).expanduser()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fig, axes = plt.subplots(len(self.arms), 1, squeeze=False, figsize=(10, 4 * len(self.arms)))
+            try:
+                for ax, arm in zip(axes[:, 0], self.arms):
+                    for source in sources:
+                        points = np.asarray(series[arm][source])
+                        if len(points):
+                            ax.plot(points[:, 0], np.degrees(points[:, response_joint]), label=source)
+                    ax.set(title=f'{arm}: J{response_joint}', xlabel='Time [s]', ylabel='Position [deg]')
+                    ax.grid(True)
+                    ax.legend()
+                fig.tight_layout()
+                fig.savefig(path, dpi=150)
+                paths.append(path)
+                if show_plot:
+                    plt.show()
+            finally:
+                plt.close(fig)
+        self.saved_paths = tuple(paths)
+        return self.saved_paths
 
 
 class MotionRecording:
@@ -121,7 +164,7 @@ class MotionRecording:
             self.feedback[side].append((received_at - self.started_at, joints.copy(), stamp))
             self.feedback_count[side] += 1
 
-    def save(self, models, output_dir):
+    def save(self, models, output_dir, settings=None):
         """Run after publication stops. Return PNG, raw-joint/TCP CSV, metadata paths."""
         if not self.commands:
             return None
@@ -182,6 +225,7 @@ class MotionRecording:
         fig.savefig(png, dpi=150)
         plt.close(fig)
         metadata = {
+            'settings': settings or {},
             'axis': 'xyz'[self.axis], 'initial_world_axis_m': self.origins,
             'plane': self.plane, 'initial_world_second_axis_m': self.second_origins,
             'time_basis': 'local monotonic target publication / interpolation sample time / feedback receipt time',

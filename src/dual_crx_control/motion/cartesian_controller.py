@@ -17,15 +17,13 @@ from std_msgs.msg import String
 
 from dual_crx_control.kinematics import CRXKinematics
 from dual_crx_control.ik_solver import DampedLeastSquaresIK
-from motion.startup_motion import INITIAL_JOINTS_DEG, InitialJointMove
+from dual_crx_control.motion.startup_motion import INITIAL_JOINTS_DEG, InitialJointMove
 from dual_crx_control.interpolation.client import JointTargetClient
-from dual_crx_control.motion_recording import MotionRecording
+from dual_crx_control.motion_recording import JointRecording, MotionRecording
 
 
 class DualCartesianController(Node):
-    def __init__(self, *, node_name='dual_test_5_cartesion_sychro_motion', motion_defaults=None, **kwargs):
-        super().__init__(node_name, **kwargs)
-        defaults = dict(rate=50., max_target_step=0.1,
+    DEFAULTS = dict(rate=50., max_target_step=0.1,
                         amplitude=0.02, period=4., axis='x', ramp_time=1.,
                         state_timeout=0.25, ready_timeout=10., max_cycle_step=0.03,
                         max_velocity=0.5, damping=0.01, position_tolerance=1e-5,
@@ -35,9 +33,15 @@ class DualCartesianController(Node):
                         initial_max_acceleration=0.1, initial_tolerance=0.005,
                         initial_settle_time=0.5, initial_settle_timeout=5.,
                         initial_tracking_tolerance=0.1)
+
+    def __init__(self, *, node_name='cartesian_sine', motion_defaults=None, **kwargs):
+        super().__init__(node_name, **kwargs)
+        defaults = self.DEFAULTS.copy()
         defaults.update(motion_defaults or {})
         self.settings = {k: self.declare_parameter(k, v).value for k, v in defaults.items()}
         p = self.settings
+        if not 0 < p['rate'] <= 500:
+            raise ValueError('rate must be in (0, 500], matching interpolation input_rate_hz')
         for key in defaults:
             if key == 'axis':
                 continue
@@ -61,7 +65,7 @@ class DualCartesianController(Node):
         self.initial_settled_since = None
         self.axis = ('x', 'y', 'z').index(p['axis'])
         self.save_plot = self.declare_parameter('save_plot', True).value
-        self.output_dir = self.declare_parameter('output_dir', 'cartesian_motion_results').value
+        self.output_dir = self.declare_parameter('output_dir', 'motion_recordings').value
         self.recording = MotionRecording(self.axis)
         description = self.declare_parameter('robot_description', '').value
         self.models = {}
@@ -96,6 +100,9 @@ class DualCartesianController(Node):
         self.get_logger().info('Waiting for robot description, both joint states, and command subscribers...')
         self.get_logger().info(f"Joint target rate: {p['rate']} Hz; output owned by interpolation node")
         self.create_subscription(JointState, '/interpolation/joint_commands', self.record_command, 10)
+        self.joint_recording = JointRecording(self.output_dir, target_source='target') if self.save_plot else None
+        if self.joint_recording is not None:
+            self.create_timer(1., self.joint_recording.flush, clock=Clock(clock_type=ClockType.STEADY_TIME))
 
 
     def description_callback(self, message):
@@ -150,6 +157,7 @@ class DualCartesianController(Node):
         if self.save_plot:
             stamp = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
             self.recording.measured(side, self.received[side], q, stamp)
+            self.joint_recording.add(self.received[side], side, 'feedback', q)
 
     def invalid_feedback(self, side, reason):
         self.received.pop(side, None)
@@ -331,18 +339,26 @@ class DualCartesianController(Node):
         return offset
 
     def publish_pair(self, commands):
+        published_at = time.monotonic()
         self.target_client.publish(commands)
         if self.save_plot:
-            self.recording.target(time.monotonic(), commands)
+            self.recording.target(published_at, commands)
+            for side, q in commands.items():
+                self.joint_recording.add(published_at, side, 'target', q)
         self.previous = {s: q.copy() for s, q in commands.items()}
 
     def record_command(self, message):
         if self.finished or self.failed or not self.models:
             return
+        if len(message.name) != len(message.position) or len(set(message.name)) != len(message.name):
+            return
         by_name = dict(zip(message.name, message.position))
         if any(n not in by_name for model in self.models.values() for n in model.joint_names):
             return
         commands = {s: np.array([by_name[n] for n in m.joint_names]) for s, m in self.models.items()}
+        if any(not np.isfinite(q).all() for q in commands.values()):
+            return
+        received_at = time.monotonic()
         now = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
         self.last_publish = now
         self.command_count += 1
@@ -350,6 +366,8 @@ class DualCartesianController(Node):
             self.first_command_time = now
         if self.save_plot:
             self.recording.command(now, commands)
+            for side, q in commands.items():
+                self.joint_recording.add(received_at, side, 'interpolated', q)
         if self.cartesian_complete and all(
                 np.array_equal(commands[s], self.segment_target[i]) for i, s in enumerate(('left', 'right'))):
             self.finished = True
@@ -370,11 +388,11 @@ class DualCartesianController(Node):
             print(summary, flush=True)
 
 
-def main(controller_type=DualCartesianController):
+def main(controller_type=DualCartesianController, parameter_overrides=None):
     rclpy.init()
     node = None
     try:
-        node = controller_type()
+        node = controller_type(parameter_overrides=parameter_overrides)
         while rclpy.ok() and not node.failed and not node.finished:
             rclpy.spin_once(node, timeout_sec=0.1)
     except (KeyboardInterrupt, ExternalShutdownException):
@@ -387,7 +405,12 @@ def main(controller_type=DualCartesianController):
             rclpy.shutdown()
         if node is not None and node.save_plot:
             try:
-                paths = node.recording.save(node.models, node.output_dir)
+                for path in node.joint_recording.save():
+                    print(f'Saved {path}', flush=True)
+                settings = {name: node.get_parameter(name).value
+                            for name in node.list_parameters([], depth=0).names}
+                settings.pop('robot_description', None)
+                paths = node.recording.save(node.models, node.joint_recording.output, settings=settings)
                 if paths:
                     print('Saved command-versus-feedback plot: ' + str(paths[0]), flush=True)
                     print('Saved motion data: ' + str(paths[1]), flush=True)

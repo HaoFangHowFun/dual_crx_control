@@ -3,23 +3,25 @@
 
 import numpy as np
 
-from motion.cartesian_controller import DualCartesianController, main as run_controller
+from dual_crx_control.motion.cartesian_controller import DualCartesianController, main as run_controller
 from dual_crx_control.circular_trajectory import CircularTrajectory
 from dual_crx_control.motion_recording import MotionRecording
-from motion.facing_circle import (facing_start_poses, solve_facing_start,
+from dual_crx_control.motion.facing_circle import (facing_start_poses, solve_facing_start,
                                            check_joint_approach, scaled_min_singular_value)
-from motion.startup_motion import InitialJointMove
+from dual_crx_control.motion.startup_motion import InitialJointMove
 
 
 class DualCircleController(DualCartesianController):
-    def __init__(self, *, node_name='dual_test_6_cartesian_circle_motion',
+    CIRCLE_DEFAULTS = dict(radius=0.02, plane='xy', direction='ccw', face_each_other=False,
+                          center_midpoint=[0.55, -0.38, 0.30], tcp_gap=0.2,
+                          minimum_scaled_sigma=0.1)
+
+    def __init__(self, *, node_name='cartesian_circle',
                  motion_defaults=None, circle_defaults=None, **kwargs):
         timing = {'period': 8., 'cycles': 1}
         timing.update(motion_defaults or {})
         super().__init__(node_name=node_name, motion_defaults=timing, **kwargs)
-        defaults = dict(radius=0.02, plane='xy', direction='ccw', face_each_other=False,
-                        center_midpoint=[0.55, -0.38, 0.30], tcp_gap=0.2,
-                        minimum_scaled_sigma=0.1)
+        defaults = self.CIRCLE_DEFAULTS.copy()
         defaults.update(circle_defaults or {})
         parameters = {k: self.declare_parameter(k, v).value for k, v in defaults.items()}
         radius, plane, direction = (parameters[k] for k in ('radius', 'plane', 'direction'))

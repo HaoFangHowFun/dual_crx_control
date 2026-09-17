@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""Send and record synchronized J1-J6 targets with dual_arm.launch.py."""
+"""Send and record synchronized two-position joint targets.
+
+Source ROS and the workspace in each terminal first.
+Terminal 1 (mock):
+    ros2 launch dual_crx_control dual_arm.launch.py mock:=true rviz:=false input_rate_hz:=100.0
+Terminal 2:
+    ros2 run dual_crx_control simple_motion.py --joint 1 --range-deg 1 --hold 2 --duration 10 --rate 100 --output-dir motion_recordings
+
+Both arms use left_J1..J6 and right_J1..J6; no configurable prefix.
+Motion starts when ready, approaches INITIAL_JOINTS_DEG, then alternates A/B.
+Match --rate to launch input_rate_hz. --range-deg is the signed A-to-B angle;
+--hold is seconds at each position. Ctrl+C stops targets; interpolation holds.
+Each run saves joints.csv and left/right six-joint PNGs in a timestamped folder.
+"""
 
 import argparse
 from functools import partial
@@ -123,7 +136,7 @@ def parse_args(argv=None):
                         help='Seconds for the smooth move to INITIAL_JOINTS_DEG before stepping (default: 3)')
     parser.add_argument('--rate', type=float, default=100.,
                         help='Target rate in Hz; match launch input_rate_hz (default: 100)')
-    parser.add_argument('--output-dir', default='/home/msc-crx/ws_fanuc/simple_motion_recordings',
+    parser.add_argument('--output-dir', default='motion_recordings',
                         help='Parent directory for timestamped joint CSV and left/right plots')
     args = parser.parse_args(argv)
     for name in ('range_deg', 'hold', 'duration', 'rate', 'startup_duration'):

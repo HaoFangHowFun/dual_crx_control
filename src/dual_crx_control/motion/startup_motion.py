@@ -1,4 +1,4 @@
-"""Synchronized, bounded joint interpolation before Cartesian motion."""
+"""Synchronized, bounded joint approach before Cartesian motion."""
 
 import math
 
