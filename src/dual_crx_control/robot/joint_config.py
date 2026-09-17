@@ -13,3 +13,11 @@ def canonical_side(namespace):
     if side not in SIDES:
         raise ValueError(f'Unsupported arm namespace: {namespace}')
     return side
+
+
+def ordered_feedback(message, arm):
+    """Order joint feedback by arm; reject malformed names/positions."""
+    if len(message.name) != len(message.position) or len(set(message.name)) != len(message.name):
+        raise ValueError('malformed joint feedback')
+    values = dict(zip(message.name, message.position))
+    return [values[f'{arm}_J{i}'] for i in range(1, 7)]

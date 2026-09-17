@@ -21,11 +21,11 @@ import xacro
 import yaml
 from ament_index_python.packages import get_package_share_directory
 
-from dual_crx_control.circular_trajectory import CircularTrajectory
+from dual_crx_control.motion.circular_trajectory import CircularTrajectory
 from dual_crx_control.motion.facing_circle import (facing_start_poses, solve_facing_start,
                                            check_joint_approach, scaled_min_singular_value)
-from dual_crx_control.kinematics import CRXKinematics
-from dual_crx_control.ik_solver import DampedLeastSquaresIK
+from dual_crx_control.robot.kinematics import CRXKinematics
+from dual_crx_control.robot.ik_solver import DampedLeastSquaresIK
 from dual_crx_control.motion.startup_motion import INITIAL_JOINTS_DEG
 
 

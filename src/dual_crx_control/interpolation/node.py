@@ -14,7 +14,7 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 
 from dual_crx_control.interpolation.trajectory import JointSegment, OUTPUT_RATE_HZ, validate_rate
-from dual_crx_control.joint_config import SIDES, JOINT_NAMES
+from dual_crx_control.robot.joint_config import SIDES, JOINT_NAMES
 
 
 def joint_targets(message):

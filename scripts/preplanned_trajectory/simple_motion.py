@@ -28,8 +28,8 @@ from rclpy.utilities import remove_ros_args
 from sensor_msgs.msg import JointState
 
 from dual_crx_control.interpolation.client import JointTargetClient
-from dual_crx_control.joint_config import INITIAL_JOINTS_DEG, JOINT_NAMES, SIDES
-from dual_crx_control.motion_recording import JointRecording
+from dual_crx_control.robot.joint_config import INITIAL_JOINTS_DEG, JOINT_NAMES, SIDES
+from dual_crx_control.analysis.motion_recording import JointRecording
 
 
 class SimpleMotion(Node):

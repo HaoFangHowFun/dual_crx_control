@@ -2,7 +2,7 @@
 import numpy as np
 from sensor_msgs.msg import JointState
 
-from dual_crx_control.joint_config import JOINT_NAMES, SIDES, canonical_side
+from dual_crx_control.robot.joint_config import JOINT_NAMES, SIDES, canonical_side
 
 
 class JointTargetClient:

@@ -31,10 +31,3 @@ class LatencyRecording:
             samples=len(self.rows), total=self.count, overwritten=self.count-len(self.rows),
             invalid_messages=self.invalid, **metadata), indent=2) + '\n')
         return path
-
-
-def ordered_feedback(message, arm):
-    if len(message.name) != len(message.position) or len(set(message.name)) != len(message.name):
-        raise ValueError('malformed joint feedback')
-    values = dict(zip(message.name, message.position))
-    return [values[f'{arm}_J{i}'] for i in range(1, 7)]

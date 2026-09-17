@@ -1,5 +1,44 @@
 # Motion scripts
 
+Source entry points are grouped by purpose:
+
+```text
+scripts/
+  preplanned_trajectory/
+    simple_motion.py
+    joint_sine.py
+    cartesian_sine.py
+    cartesian_circle.py
+    facing_circle.py
+  util/
+    interpolation_node
+    teleop_bridge
+  analysis/
+    record_teleoperation.py
+    analyze_latency.py
+  calibrate_arm_bases.py
+```
+
+CMake installs the nine ROS entry points into `lib/dual_crx_control` using their
+existing basenames. These source directories do not change `ros2 run` commands or
+launch executable names. Calibration remains a source-only script. Preplanned
+trajectories define motion patterns; Cartesian IK is still evaluated at runtime.
+
+Reusable implementation lives under `src/dual_crx_control/`:
+
+| Package | Responsibility |
+| --- | --- |
+| `robot` | Joint conventions and feedback ordering, robot descriptions, FK/Jacobians and IK |
+| `interpolation` | Joint-target clients, interpolation node and interpolation backends |
+| `motion` | Motion controllers, startup approaches and circular trajectories |
+| `analysis` | Joint/TCP recording, plotting and latency analysis |
+| `teleop` | Live joint-command bridge |
+
+Shared imports now use these packages, e.g. `dual_crx_control.robot.joint_config`
+and `dual_crx_control.analysis.motion_recording`. `ordered_feedback()` lives in
+`robot.joint_config`; reading joint feedback does not require the latency recorder.
+The native Ruckig extension remains `dual_crx_control._ruckig`.
+
 Source ROS Jazzy and the workspace in each terminal. Use one motion sender at a time.
 Joint prefixes are fixed: `left_J1` through `left_J6`, and `right_J1` through `right_J6`.
 The launch argument `input_rate_hz` describes the sender's actual rate; match it to `--rate`.

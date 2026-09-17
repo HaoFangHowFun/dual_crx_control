@@ -19,15 +19,15 @@ target_link_libraries(_ruckig PRIVATE ruckig::ruckig)
 install(TARGETS _ruckig LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}")
 
 install(PROGRAMS
-  scripts/interpolation_node
-  scripts/joint_sine.py
-  scripts/cartesian_sine.py
-  scripts/cartesian_circle.py
-  scripts/facing_circle.py
-  scripts/record_teleoperation.py
-  scripts/simple_motion.py
-  scripts/analyze_latency.py
-  scripts/teleop_bridge
+  scripts/preplanned_trajectory/simple_motion.py
+  scripts/preplanned_trajectory/joint_sine.py
+  scripts/preplanned_trajectory/cartesian_sine.py
+  scripts/preplanned_trajectory/cartesian_circle.py
+  scripts/preplanned_trajectory/facing_circle.py
+  scripts/util/interpolation_node
+  scripts/util/teleop_bridge
+  scripts/analysis/record_teleoperation.py
+  scripts/analysis/analyze_latency.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -15,11 +15,11 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
-from dual_crx_control.kinematics import CRXKinematics
-from dual_crx_control.ik_solver import DampedLeastSquaresIK
+from dual_crx_control.robot.kinematics import CRXKinematics
+from dual_crx_control.robot.ik_solver import DampedLeastSquaresIK
 from dual_crx_control.motion.startup_motion import INITIAL_JOINTS_DEG, InitialJointMove
 from dual_crx_control.interpolation.client import JointTargetClient
-from dual_crx_control.motion_recording import JointRecording, MotionRecording
+from dual_crx_control.analysis.motion_recording import JointRecording, MotionRecording
 
 
 class DualCartesianController(Node):

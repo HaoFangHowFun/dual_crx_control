@@ -12,8 +12,8 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 
-from dual_crx_control.joint_config import JOINT_NAMES, SIDES
-from dual_crx_control.motion_recording import JointRecording
+from dual_crx_control.robot.joint_config import JOINT_NAMES, SIDES
+from dual_crx_control.analysis.motion_recording import JointRecording
 
 
 class TeleoperationRecorder(Node):

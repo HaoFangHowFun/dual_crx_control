@@ -13,7 +13,7 @@ import pytest
 
 from dual_crx_control.motion.joint_sine import JointSine, parse_args
 from dual_crx_control.motion.cli import parse_parameters
-from dual_crx_control.motion_recording import JointRecording
+from dual_crx_control.analysis.motion_recording import JointRecording
 
 
 def test_single_and_dual_defaults():

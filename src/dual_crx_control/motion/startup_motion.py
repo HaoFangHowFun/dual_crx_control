@@ -5,7 +5,7 @@ import math
 import numpy as np
 
 
-from dual_crx_control.joint_config import INITIAL_JOINTS_DEG
+from dual_crx_control.robot.joint_config import INITIAL_JOINTS_DEG
 
 
 class InitialJointMove:

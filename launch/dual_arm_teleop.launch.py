@@ -5,13 +5,13 @@ Before use (in each terminal):
     source /opt/ros/jazzy/setup.bash
     source install/setup.bash
 
-Usage: ros2 launch dual_crx_control teleop_joint.launch.py argument:=value
+Usage: ros2 launch dual_crx_control dual_arm_teleop.launch.py argument:=value
     # Mock hardware, no RViz, Ruckig interpolation:
-    ros2 launch dual_crx_control teleop_joint.launch.py mock:=true rviz:=false method:=ruckig
+    ros2 launch dual_crx_control dual_arm_teleop.launch.py mock:=true rviz:=false method:=ruckig
     # Real hardware, linear interpolation, targets actually sent at 100 Hz:
-    ros2 launch dual_crx_control teleop_joint.launch.py mock:=false method:=linear input_rate_hz:=100.0
+    ros2 launch dual_crx_control dual_arm_teleop.launch.py mock:=false method:=linear input_rate_hz:=100.0
     # List all arguments:
-    ros2 launch dual_crx_control teleop_joint.launch.py --show-args
+    ros2 launch dual_crx_control dual_arm_teleop.launch.py --show-args
 
 Main arguments and defaults:
     mock:=true; rviz defaults to mock (on for mock, off for real); can be overridden.
@@ -41,7 +41,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
-from dual_crx_control.robot_description import arm_description, MOCK_INITIAL_POSITIONS
+from dual_crx_control.robot.description import arm_description, MOCK_INITIAL_POSITIONS
 
 
 def launch_setup(context):

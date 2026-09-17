@@ -51,11 +51,19 @@ Cartesian 原本使用 --ros-args -p 的參數需建立舊名到新 CLI 名稱�
 
 ```text
 scripts/
-  simple_motion.py
-  joint_sine.py
-  cartesian_sine.py
-  cartesian_circle.py
-  facing_circle.py
+  preplanned_trajectory/
+    simple_motion.py
+    joint_sine.py
+    cartesian_sine.py
+    cartesian_circle.py
+    facing_circle.py
+  util/
+    interpolation_node
+    teleop_bridge
+  analysis/
+    record_teleoperation.py
+    analyze_latency.py
+  calibrate_arm_bases.py
 
 src/dual_crx_control/motion/
   __init__.py

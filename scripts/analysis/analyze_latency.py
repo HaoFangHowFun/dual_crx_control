@@ -5,7 +5,7 @@ import csv
 import json
 from pathlib import Path
 
-from dual_crx_control.latency_analysis import estimate_delay, statistics
+from dual_crx_control.analysis.latency_analysis import estimate_delay, statistics
 
 
 def analyze(path, args):

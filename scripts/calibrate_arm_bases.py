@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+"""Calibrate the right arm base relative to the left using paired TCP points.
+
+Run from the repository root:
+    python3 scripts/calibrate_arm_bases.py
+
+Edit left_points and right_points to provide corresponding measurements in metres.
+The left base is the reference: p_left = R @ p_right + t.
+Prints the transform, Xacro placement values and point-fit errors; does not
+modify the robot configuration or publish motion commands.
+"""
 
 import numpy as np
 from scipy.spatial.transform import Rotation

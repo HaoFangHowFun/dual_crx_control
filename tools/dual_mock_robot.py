@@ -20,8 +20,8 @@ from rclpy.executors import ExternalShutdownException
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 
-from dual_crx_control.kinematics import CRXKinematics
-from dual_crx_control.joint_config import INITIAL_JOINTS_DEG
+from dual_crx_control.robot.kinematics import CRXKinematics
+from dual_crx_control.robot.joint_config import INITIAL_JOINTS_DEG
 
 
 INITIAL = {side: np.radians(angles) for side, angles in INITIAL_JOINTS_DEG.items()}

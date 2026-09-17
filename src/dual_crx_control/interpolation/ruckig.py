@@ -4,7 +4,7 @@ import math
 import numpy as np
 
 from dual_crx_control._ruckig import Generator
-from dual_crx_control.joint_config import SIDES
+from dual_crx_control.robot.joint_config import SIDES
 
 # CRX-5iA model: fanuc_crx_description/urdf/crx5ia_urdf_macro.xacro.
 MAX_VELOCITY = tuple(math.radians(v) for v in (150, 150, 180, 225, 225, 225))

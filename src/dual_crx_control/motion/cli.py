@@ -5,7 +5,7 @@ import argparse
 from rclpy.parameter import Parameter
 from rclpy.utilities import remove_ros_args
 
-from dual_crx_control.joint_config import INITIAL_JOINTS_DEG
+from dual_crx_control.robot.joint_config import INITIAL_JOINTS_DEG
 from dual_crx_control.motion.cartesian_controller import DualCartesianController, main
 from dual_crx_control.motion.circle_controller import DualCircleController
 
