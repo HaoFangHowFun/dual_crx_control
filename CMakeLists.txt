@@ -7,8 +7,16 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
+find_package(pybind11_vendor REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development.Module)
+find_package(pybind11 REQUIRED)
+find_package(ruckig REQUIRED)
 
 ament_python_install_package(${PROJECT_NAME} PACKAGE_DIR src/${PROJECT_NAME})
+
+pybind11_add_module(_ruckig src/ruckig_binding.cpp)
+target_link_libraries(_ruckig PRIVATE ruckig::ruckig)
+install(TARGETS _ruckig LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}")
 
 ament_python_install_package(motion PACKAGE_DIR scripts/motion)
 
@@ -23,6 +31,8 @@ install(PROGRAMS
   scripts/search_facing_circle.py
   scripts/dual_test2_periodic.py
   scripts/record_latency.py
+  scripts/record_teleoperation.py
+  scripts/simple_motion.py
   scripts/analyze_latency.py
   scripts/analyze_latency_trace.py
   scripts/dual_mock_robot.py
@@ -30,7 +40,8 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-if(BUILD_TESTING)
+# Tests are kept locally and may be absent from a fresh checkout.
+if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests")
   find_package(ament_lint_auto REQUIRED)
   find_package(ament_cmake_pytest REQUIRED)
 
@@ -39,6 +50,7 @@ if(BUILD_TESTING)
     TIMEOUT 60
   )
   ament_add_pytest_test(interpolation tests/test_interpolation.py TIMEOUT 30)
+  ament_add_pytest_test(ruckig tests/test_ruckig.py TIMEOUT 30)
   ament_add_pytest_test(interpolation_node tests/test_interpolation_node.py TIMEOUT 120
     ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1)
   ament_add_pytest_test(dual_test4_transport tests/test_dual_test4_transport.py TIMEOUT 30
@@ -52,6 +64,10 @@ if(BUILD_TESTING)
     ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1 TIMEOUT 60)
   ament_add_pytest_test(teleop_bridge tests/test_teleop_bridge.py
     ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST TIMEOUT 60)
+  ament_add_pytest_test(teleoperation_recording tests/test_teleoperation_recording.py
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST TIMEOUT 30)
+  ament_add_pytest_test(simple_motion tests/test_simple_motion.py
+    ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST OPENBLAS_NUM_THREADS=1 TIMEOUT 90)
 
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)

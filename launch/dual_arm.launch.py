@@ -1,4 +1,32 @@
-"""Shared dual-arm bringup: GenericSystem mock or FANUC hardware, joint commands."""
+"""Dual-arm bringup: motion scripts send joint targets to the shared interpolator.
+
+Before use (in each terminal):
+    cd /home/msc-crx/ws_fanuc
+    source /opt/ros/jazzy/setup.bash
+    source install/setup.bash
+
+Usage: ros2 launch dual_crx_control dual_arm.launch.py argument:=value
+    # Mock hardware, no RViz, Ruckig interpolation:
+    ros2 launch dual_crx_control dual_arm.launch.py mock:=true rviz:=false method:=ruckig
+    # Real hardware, linear interpolation, targets actually sent at 100 Hz:
+    ros2 launch dual_crx_control dual_arm.launch.py mock:=false rviz:=false method:=linear input_rate_hz:=100.0
+    # List all arguments:
+    ros2 launch dual_crx_control dual_arm.launch.py --show-args
+
+Main arguments and defaults:
+    mock:=true; rviz:=true; method:=linear (choices: linear / cubic / ruckig).
+    input_rate_hz:=50.0: expected target frequency; valid range: 0 < Hz <= 500.
+    linear/cubic use 1/input_rate_hz as the transition time; match the actual input rate.
+    ruckig uses velocity, acceleration and jerk limits, not this value, to set arrival time.
+    All methods output at 500 Hz; input_rate_hz does not change the sender's frequency.
+    left_robot_ip:=192.168.2.100; right_robot_ip:=192.168.1.100.
+
+Input: /interpolation/joint_targets (JointState; one complete arm or both arms).
+Joint names: left_J1..left_J6 / right_J1..right_J6; there is no prefix launch argument.
+This launch starts the control stack. Run a motion script in another terminal, e.g.:
+    ros2 run dual_crx_control simple_motion.py --joint 1 --range-deg 1.5 --hold 2 --duration 20 --rate 50
+simple_motion.py records its own CSV and generates left/right plots on completion or Ctrl+C.
+"""
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.conditions import IfCondition
@@ -107,6 +135,6 @@ def generate_launch_description():
         DeclareLaunchArgument("right_robot_ip", default_value="192.168.1.100"),
         DeclareLaunchArgument("left_robot_ip", default_value="192.168.2.100"),
         DeclareLaunchArgument("input_rate_hz", default_value="50.0"),
-        DeclareLaunchArgument("method", default_value="linear", choices=["linear", "cubic"]),
+        DeclareLaunchArgument("method", default_value="linear", choices=["linear", "cubic", "ruckig"]),
         OpaqueFunction(function=launch_setup),
     ])

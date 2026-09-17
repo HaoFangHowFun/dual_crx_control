@@ -38,8 +38,18 @@ class InterpolationNode(Node):
             'input_rate_hz', 50.0, ParameterDescriptor(read_only=True)).value)
         self.method = self.declare_parameter(
             'method', 'linear', ParameterDescriptor(read_only=True)).value
-        if self.method not in ('linear', 'cubic'):
-            raise ValueError('method must be linear or cubic')
+        if self.method not in ('linear', 'cubic', 'ruckig'):
+            raise ValueError('method must be linear, cubic or ruckig')
+        self.ruckig = None
+        self.velocities = {}
+        if self.method == 'ruckig':
+            from dual_crx_control.ruckig_interpolation import (
+                RuckigInterpolation, MAX_VELOCITY, MAX_ACCELERATION, MAX_JERK)
+            self.ruckig = RuckigInterpolation(1 / OUTPUT_RATE_HZ)
+            self.get_logger().info(
+                f'Ruckig at {OUTPUT_RATE_HZ:g} Hz; max velocity={MAX_VELOCITY} rad/s; '
+                f'experimental max acceleration={MAX_ACCELERATION} rad/s²; '
+                f'experimental max jerk={MAX_JERK} rad/s³')
         self.positions, self.segments, self.last_q, self.last_publish = {}, {}, {}, {}
         self.history = {s: deque(maxlen=5) for s in SIDES}
         self.pending = None
@@ -57,7 +67,7 @@ class InterpolationNode(Node):
 
     def feedback(self, side, msg):
         # Feedback initializes an arm once; it is not a runtime watchdog.
-        if side in self.last_q:
+        if side in self.last_q or (self.ruckig is not None and side in self.ruckig.active):
             return
         if (len(msg.name) != len(msg.position) or len(set(msg.name)) != len(msg.name)
                 or not set(JOINT_NAMES[side]).issubset(msg.name)):
@@ -67,6 +77,15 @@ class InterpolationNode(Node):
         if not np.isfinite(q).all():
             return
         self.positions[side] = q
+        if self.ruckig is not None:
+            velocity = dict(zip(msg.name, msg.velocity))
+            if len(msg.velocity) == len(msg.name) and np.isfinite(msg.velocity).all():
+                self.velocities[side] = np.array([velocity[n] for n in JOINT_NAMES[side]])
+            else:
+                self.velocities[side] = np.zeros(6)
+                self.get_logger().warning(
+                    f'{side}: initialization velocity unavailable; assuming stationary start.',
+                    throttle_duration_sec=5.)
         if self.pending is not None and all(s in self.positions or s in self.last_q for s in self.pending):
             pending, self.pending = self.pending, None
             self.accept(pending)
@@ -83,6 +102,9 @@ class InterpolationNode(Node):
             self.get_logger().warning(f'Joint data rejected: {exc}', throttle_duration_sec=2.)
 
     def accept(self, commands):
+        if self.ruckig is not None:
+            self.ruckig.target(commands, self.positions, self.velocities)
+            return
         now = time.monotonic()
         segments = {}
         for side, q in commands.items():
@@ -94,11 +116,20 @@ class InterpolationNode(Node):
         self.segments.update(segments)
 
     def tick(self):
-        if not self.segments:
+        if not self.segments and not (self.ruckig is not None and self.ruckig.active):
             return
         now_ns = time.monotonic_ns()
         now = now_ns * 1e-9
-        commands = {s: segment.sample(now) for s, segment in self.segments.items()}
+        if self.ruckig is not None:
+            try:
+                commands = self.ruckig.step()
+            except RuntimeError as exc:
+                self.get_logger().error(f'{exc}; holding last published positions.', throttle_duration_sec=2.)
+                commands = {s: q.copy() for s, q in self.last_q.items()}
+                if not commands:
+                    return
+        else:
+            commands = {s: segment.sample(now) for s, segment in self.segments.items()}
         if any(not np.isfinite(q).all() for q in commands.values()):
             self.get_logger().warning('Nonfinite interpolation sample rejected.', throttle_duration_sec=2.)
             return

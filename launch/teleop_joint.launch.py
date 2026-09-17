@@ -1,4 +1,36 @@
-"""Standalone dual-arm joint control with real or ros2_control mock hardware."""
+"""Dual-arm teleoperation: teleop bridge, shared interpolator and joint recorder.
+
+Before use (in each terminal):
+    cd /home/msc-crx/ws_fanuc
+    source /opt/ros/jazzy/setup.bash
+    source install/setup.bash
+
+Usage: ros2 launch dual_crx_control teleop_joint.launch.py argument:=value
+    # Mock hardware, no RViz, Ruckig interpolation:
+    ros2 launch dual_crx_control teleop_joint.launch.py mock:=true rviz:=false method:=ruckig
+    # Real hardware, linear interpolation, targets actually sent at 100 Hz:
+    ros2 launch dual_crx_control teleop_joint.launch.py mock:=false method:=linear input_rate_hz:=100.0
+    # List all arguments:
+    ros2 launch dual_crx_control teleop_joint.launch.py --show-args
+
+Main arguments and defaults:
+    mock:=true; rviz defaults to mock (on for mock, off for real); can be overridden.
+    method:=linear (choices: linear / cubic / ruckig); input_rate_hz:=100.0.
+    input_rate_hz is the expected input frequency, with 0 < Hz <= 500; it does not throttle input.
+    linear/cubic use 1/input_rate_hz as the transition time; match the actual input rate.
+    ruckig uses velocity, acceleration and jerk limits, not this value, to set arrival time.
+    All methods output at 500 Hz.
+    state_publish_rate:=100.0: merged feedback frequency, independent of target frequency.
+    left_robot_ip:=192.168.2.100; right_robot_ip:=192.168.1.100.
+    record:=true: automatically record joints; use record:=false to disable.
+    record_output_dir:=/home/msc-crx/ws_fanuc/teleop_recordings: recording parent directory.
+    Ctrl+C saves joints.csv and left/right plots in a timestamped subdirectory.
+
+External input: /teleop/joint_command (Float64MultiArray; 12 radians, left J1-J6 then right J1-J6).
+Merged feedback: /teleop/joint_states (JointState).
+Joint names: left_J1..left_J6 / right_J1..right_J6; there is no prefix launch argument.
+Choose either this launch or dual_arm.launch.py for the same pair of robots.
+"""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
@@ -20,8 +52,18 @@ def launch_setup(context):
     xacro_path = PathJoinSubstitution([driver_share, 'robot', 'crx5ia.urdf.xacro']).perform(context)
     interpolation = Node(
         package='dual_crx_control', executable='interpolation_node', output='screen',
-        parameters=[{'input_rate_hz': 20.0, 'method': LaunchConfiguration('method')}])
-    actions = [interpolation]
+        parameters=[{
+            'input_rate_hz': ParameterValue(LaunchConfiguration('input_rate_hz'), value_type=float),
+            'method': LaunchConfiguration('method'),
+        }])
+    actions = [
+        Node(package='dual_crx_control', executable='record_teleoperation.py', output='screen',
+             condition=IfCondition(LaunchConfiguration('record')),
+             parameters=[{'output_dir': ParameterValue(
+                 LaunchConfiguration('record_output_dir'), value_type=str)}],
+             sigterm_timeout='60', sigkill_timeout='10'),
+        interpolation,
+    ]
     for side in ('left', 'right'):
         description = ParameterValue(arm_description(
             xacro_path, side, LaunchConfiguration(f'{side}_robot_ip').perform(context), mock),
@@ -44,9 +86,9 @@ def launch_setup(context):
         ])
     actions.append(Node(
         package='dual_crx_control', executable='teleop_bridge', output='screen',
-        parameters=[{'input_rate_hz': 20.0}, {
+        parameters=[{
             name: ParameterValue(LaunchConfiguration(name), value_type=float)
-            for name in ('state_publish_rate',)
+            for name in ('state_publish_rate', 'input_rate_hz')
         }]))
     # One combined model owns global TF; each driver's single-arm TF stays private.
     combined_description = ParameterValue(Command([
@@ -75,6 +117,13 @@ def generate_launch_description():
         DeclareLaunchArgument('left_robot_ip', default_value='192.168.2.100'),
         DeclareLaunchArgument('right_robot_ip', default_value='192.168.1.100'),
         DeclareLaunchArgument('state_publish_rate', default_value='100.0'),
-        DeclareLaunchArgument('method', default_value='linear', choices=['linear', 'cubic']),
+        DeclareLaunchArgument('input_rate_hz', default_value='100.0',
+                              description='Expected upstream command rate (0 < Hz <= 500); sets interpolation horizon'),
+        DeclareLaunchArgument('method', default_value='linear', choices=['linear', 'cubic', 'ruckig']),
+        DeclareLaunchArgument('record', default_value='true', choices=['true', 'false'],
+                              description='Save joint CSV and left/right plots on shutdown'),
+        DeclareLaunchArgument('record_output_dir',
+                              default_value='/home/msc-crx/ws_fanuc/teleop_recordings',
+                              description='Parent directory for timestamped joint recordings'),
         OpaqueFunction(function=launch_setup),
     ])

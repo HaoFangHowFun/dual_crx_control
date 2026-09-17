@@ -8,6 +8,7 @@ from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from rcl_interfaces.msg import ParameterDescriptor
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 from dual_crx_control.interpolation_client import JointTargetClient
@@ -25,13 +26,10 @@ class TeleopBridge(Node):
             raise ValueError('state_publish_rate must be finite and positive')
 
         self.states = {}
-        self.input_rate = self.declare_parameter('input_rate_hz', 20.0).value
-        if self.input_rate != 20.0:
-            raise ValueError('teleoperation input_rate_hz is fixed at 20 Hz')
+        self.input_rate = self.declare_parameter(
+            'input_rate_hz', 20.0, ParameterDescriptor(read_only=True)).value
         self.target_client = JointTargetClient(self, self.input_rate)
         self.pending_command = None
-        self.create_timer(1.0 / self.input_rate, self.send_target,
-                          clock=Clock(clock_type=ClockType.STEADY_TIME))
         self.arm_publishers = {}
         for side in SIDES:
             state_topic = self.declare_parameter(
@@ -50,6 +48,7 @@ class TeleopBridge(Node):
                                       throttle_duration_sec=2.0)
             return
         self.pending_command = list(message.data)
+        self.send_target()
 
     def send_target(self):
         if self.pending_command is None or not self.target_client.available():
@@ -80,6 +79,9 @@ class TeleopBridge(Node):
         self.states[side] = state
 
     def publish_state(self):
+        # Retry only a target that could not be sent before discovery completed.
+        # Normal commands are forwarded directly by receive_command(), without a rate gate.
+        self.send_target()
         if any(side not in self.states for side in SIDES):
             return
         states = [self.states[side] for side in SIDES]

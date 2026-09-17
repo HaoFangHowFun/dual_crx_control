@@ -5,8 +5,79 @@ import csv
 from datetime import datetime
 import json
 from pathlib import Path
+import time
 
 import numpy as np
+
+
+class JointRecording:
+    """Stream joint samples to CSV and draw one six-joint figure per arm."""
+
+    def __init__(self, output_dir, target_source='telebridge'):
+        self.target_source = target_source
+        self.started_at = time.monotonic()
+        self.output = Path(output_dir).expanduser().resolve() / datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        self.output.mkdir(parents=True)
+        self.csv_path = self.output / 'joints.csv'
+        self.stream = self.csv_path.open('w', newline='')
+        self.writer = csv.writer(self.stream)
+        self.writer.writerow(['time_s', 'arm', 'source', *[f'J{i}_rad' for i in range(1, 7)]])
+        self.flush()
+
+    def add(self, received_at, arm, source, joints):
+        self.writer.writerow([received_at - self.started_at, arm, source, *joints])
+
+    def flush(self):
+        self.stream.flush()
+
+    def close(self):
+        self.stream.close()
+
+    def save(self):
+        """Close the CSV before importing matplotlib or generating plots."""
+        self.close()
+        sources = (self.target_source, 'interpolated', 'feedback')
+        series = {arm: {source: [] for source in sources} for arm in ('left', 'right')}
+        with self.csv_path.open(newline='') as stream:
+            for row in csv.DictReader(stream):
+                series[row['arm']][row['source']].append(
+                    [float(row['time_s']), *[float(row[f'J{i}_rad']) for i in range(1, 7)]])
+
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        paths = [self.csv_path]
+        for arm, streams in series.items():
+            fig, axes = plt.subplots(3, 2, figsize=(13, 9), sharex=True)
+            try:
+                for source, label, style in (
+                    (self.target_source, 'Telebridge target' if self.target_source == 'telebridge' else 'Joint target', ':'),
+                    ('interpolated', 'Interpolated command', '-'),
+                    ('feedback', 'Feedback', '--'),
+                ):
+                    points = np.asarray(streams[source], dtype=float)
+                    if not len(points):
+                        continue
+                    for joint, ax in enumerate(axes.flat, start=1):
+                        ax.plot(points[:, 0], points[:, joint], style, label=label, linewidth=1.)
+                for joint, ax in enumerate(axes.flat, start=1):
+                    ax.set_title(f'J{joint}')
+                    ax.set_ylabel('Position [rad]')
+                    ax.grid(True)
+                handles, labels = axes.flat[0].get_legend_handles_labels()
+                if handles:
+                    fig.legend(handles, labels, loc='upper center', ncol=3, bbox_to_anchor=(.5, .96))
+                for ax in axes[-1]:
+                    ax.set_xlabel('Time since recorder started [s]')
+                fig.suptitle(f'{arm.capitalize()} arm joint positions')
+                fig.tight_layout(rect=(0, 0, 1, .92))
+                path = self.output / f'{arm}_joints.png'
+                fig.savefig(path, dpi=150)
+                paths.append(path)
+            finally:
+                plt.close(fig)
+        return tuple(paths)
 
 
 class MotionRecording:
