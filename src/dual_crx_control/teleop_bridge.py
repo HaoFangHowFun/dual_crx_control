@@ -8,10 +8,9 @@ from rclpy.clock import Clock, ClockType
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from rcl_interfaces.msg import ParameterDescriptor
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
-from dual_crx_control.interpolation_client import JointTargetClient
+from dual_crx_control.interpolation.client import JointTargetClient
 
 
 SIDES = ('left', 'right')
@@ -26,9 +25,7 @@ class TeleopBridge(Node):
             raise ValueError('state_publish_rate must be finite and positive')
 
         self.states = {}
-        self.input_rate = self.declare_parameter(
-            'input_rate_hz', 20.0, ParameterDescriptor(read_only=True)).value
-        self.target_client = JointTargetClient(self, self.input_rate)
+        self.target_client = JointTargetClient(self)
         self.pending_command = None
         self.arm_publishers = {}
         for side in SIDES:

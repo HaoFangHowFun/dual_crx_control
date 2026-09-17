@@ -7,7 +7,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from dual_crx_control.interpolation_client import JointTargetClient
+from dual_crx_control.interpolation.client import JointTargetClient
 from dual_crx_control.joint_config import canonical_side
 
 from sensor_msgs.msg import JointState
@@ -74,7 +74,7 @@ class JointTest(Node):
             10
         )
 
-        self.target_client = JointTargetClient(self, rate_hz, [''])
+        self.target_client = JointTargetClient(self, arms=[''])
         self.publisher = self.target_client.arm_publisher('')
 
     def joint_state_callback(self, msg):

@@ -7,7 +7,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from dual_crx_control.interpolation_client import JointTargetClient
+from dual_crx_control.interpolation.client import JointTargetClient
 from dual_crx_control.joint_config import canonical_side
 
 from sensor_msgs.msg import JointState
@@ -99,7 +99,7 @@ class JointTest(Node):
             10
         )
 
-        self.target_client = JointTargetClient(self, rate_hz, [robot_namespace])
+        self.target_client = JointTargetClient(self, arms=[robot_namespace])
         self.publisher = self.target_client.arm_publisher(robot_namespace)
         if self.latency_recording is not None:
             self.create_subscription(JointState, '/interpolation/joint_commands', self.output_callback, 100)

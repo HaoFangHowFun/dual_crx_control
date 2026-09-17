@@ -1,4 +1,4 @@
-"""Latest-target, time-synchronized Ruckig reference state for one or both arms."""
+"""Time-synchronized Ruckig reference state for one or both arms."""
 import math
 
 import numpy as np
@@ -19,8 +19,6 @@ class RuckigInterpolation:
     def __init__(self, dt):
         self.generator = Generator(dt, MAX_VELOCITY, MAX_ACCELERATION, MAX_JERK)
         self.active = set()
-        self.velocity = {}
-        self.acceleration = {}
 
     def target(self, commands, positions, velocities):
         for side, q in commands.items():
@@ -28,7 +26,6 @@ class RuckigInterpolation:
             self.active.add(side)
 
     def step(self):
-        q, v, a = (np.asarray(values).reshape(2, 6) for values in self.generator.step())
-        self.velocity = {s: v[i].copy() for i, s in enumerate(SIDES) if s in self.active}
-        self.acceleration = {s: a[i].copy() for i, s in enumerate(SIDES) if s in self.active}
+        positions, _, _ = self.generator.step()
+        q = np.asarray(positions).reshape(2, 6)
         return {s: q[i].copy() for i, s in enumerate(SIDES) if s in self.active}

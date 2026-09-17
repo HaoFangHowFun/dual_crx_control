@@ -18,7 +18,7 @@ from std_msgs.msg import String
 from dual_crx_control.kinematics import CRXKinematics
 from dual_crx_control.ik_solver import DampedLeastSquaresIK
 from motion.startup_motion import INITIAL_JOINTS_DEG, InitialJointMove
-from dual_crx_control.interpolation_client import JointTargetClient
+from dual_crx_control.interpolation.client import JointTargetClient
 from dual_crx_control.motion_recording import MotionRecording
 
 
@@ -68,7 +68,7 @@ class DualCartesianController(Node):
         self.description = ''
         self.solvers = {}
         self.arm_publishers = {}
-        self.target_client = JointTargetClient(self, p['rate'])
+        self.target_client = JointTargetClient(self)
         self.positions, self.received = {}, {}
         self.starts = None
         self.previous = {}

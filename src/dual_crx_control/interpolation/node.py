@@ -13,7 +13,7 @@ from rcl_interfaces.msg import ParameterDescriptor
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 
-from dual_crx_control.interpolation import JointSegment, OUTPUT_RATE_HZ, validate_rate
+from dual_crx_control.interpolation.trajectory import JointSegment, OUTPUT_RATE_HZ, validate_rate
 from dual_crx_control.joint_config import SIDES, JOINT_NAMES
 
 
@@ -43,7 +43,7 @@ class InterpolationNode(Node):
         self.ruckig = None
         self.velocities = {}
         if self.method == 'ruckig':
-            from dual_crx_control.ruckig_interpolation import (
+            from dual_crx_control.interpolation.ruckig import (
                 RuckigInterpolation, MAX_VELOCITY, MAX_ACCELERATION, MAX_JERK)
             self.ruckig = RuckigInterpolation(1 / OUTPUT_RATE_HZ)
             self.get_logger().info(
@@ -53,7 +53,6 @@ class InterpolationNode(Node):
         self.positions, self.segments, self.last_q, self.last_publish = {}, {}, {}, {}
         self.history = {s: deque(maxlen=5) for s in SIDES}
         self.pending = None
-        self.command_count = 0
         self.arm_publishers = {}
         for side in SIDES:
             self.arm_publishers[side] = self.create_publisher(
@@ -145,7 +144,6 @@ class InterpolationNode(Node):
             report.position.extend(q.tolist())
         report.header.stamp.sec, report.header.stamp.nanosec = divmod(now_ns, 10**9)
         self.command_pub.publish(report)
-        self.command_count += 1
 
 
 def main():

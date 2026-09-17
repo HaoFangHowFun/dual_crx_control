@@ -1,15 +1,12 @@
-"""Publish joint targets; no interpolation, sessions, ownership or watchdogs."""
+"""Publish joint targets without owning interpolation policy."""
 import numpy as np
 from sensor_msgs.msg import JointState
 
-from dual_crx_control.interpolation import validate_rate
 from dual_crx_control.joint_config import JOINT_NAMES, SIDES, canonical_side
 
 
 class JointTargetClient:
-    def __init__(self, node, input_rate_hz, arms=SIDES):
-        self.node = node
-        self.rate = validate_rate(input_rate_hz)
+    def __init__(self, node, arms=SIDES):
         selected = {canonical_side(a) for a in arms}
         if not selected:
             raise ValueError('at least one arm is required')

@@ -1,4 +1,4 @@
-"""ROS-independent linear interpolation of finite, matching NumPy arrays."""
+"""ROS-independent joint trajectory interpolation."""
 
 import numpy as np
 from scipy.interpolate import CubicSpline

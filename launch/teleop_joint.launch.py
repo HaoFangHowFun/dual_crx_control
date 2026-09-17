@@ -86,10 +86,8 @@ def launch_setup(context):
         ])
     actions.append(Node(
         package='dual_crx_control', executable='teleop_bridge', output='screen',
-        parameters=[{
-            name: ParameterValue(LaunchConfiguration(name), value_type=float)
-            for name in ('state_publish_rate', 'input_rate_hz')
-        }]))
+        parameters=[{'state_publish_rate': ParameterValue(
+            LaunchConfiguration('state_publish_rate'), value_type=float)}]))
     # One combined model owns global TF; each driver's single-arm TF stays private.
     combined_description = ParameterValue(Command([
         'xacro ', PathJoinSubstitution([share, 'urdf', 'dual_crx.urdf.xacro']),

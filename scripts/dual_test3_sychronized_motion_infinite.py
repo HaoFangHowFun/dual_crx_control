@@ -9,7 +9,7 @@ from functools import partial
 
 import rclpy
 from rclpy.node import Node
-from dual_crx_control.interpolation_client import JointTargetClient
+from dual_crx_control.interpolation.client import JointTargetClient
 from dual_crx_control.joint_config import canonical_side
 from rclpy.qos import qos_profile_sensor_data
 
@@ -92,7 +92,7 @@ class JointTest(Node):
         self.show_plot = show_plot
         self.positions = {}
         self.state_received_at = {}
-        self.target_client = JointTargetClient(self, rate_hz, robot_namespaces)
+        self.target_client = JointTargetClient(self, arms=robot_namespaces)
         self.command_publishers = {}
         for ns in robot_namespaces:
             self.create_subscription(

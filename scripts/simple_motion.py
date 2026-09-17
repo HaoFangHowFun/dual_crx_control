@@ -14,7 +14,7 @@ from rclpy.qos import qos_profile_sensor_data
 from rclpy.utilities import remove_ros_args
 from sensor_msgs.msg import JointState
 
-from dual_crx_control.interpolation_client import JointTargetClient
+from dual_crx_control.interpolation.client import JointTargetClient
 from dual_crx_control.joint_config import INITIAL_JOINTS_DEG, JOINT_NAMES, SIDES
 from dual_crx_control.motion_recording import JointRecording
 
@@ -29,7 +29,7 @@ class SimpleMotion(Node):
         self.start_positions = None
         self.started_at = None
         self.done = False
-        self.target_client = JointTargetClient(self, args.rate)
+        self.target_client = JointTargetClient(self)
         self.recording = JointRecording(args.output_dir, target_source='target')
         for side in SIDES:
             self.create_subscription(JointState, f'/{side}/joint_states',
