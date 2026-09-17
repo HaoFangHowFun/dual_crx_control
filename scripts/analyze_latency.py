@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze existing motion CSV or record_latency.py CSV without starting ROS."""
+"""Analyze command or interpolated motion against feedback without starting ROS."""
 import argparse
 import csv
 import json
@@ -12,16 +12,26 @@ def analyze(path, args):
     with path.open() as stream:
         rows = list(csv.DictReader(stream))
     results = {}
+    input_sources = {}
     for arm in sorted({r['arm'] for r in rows}):
-        samples = {s: [r for r in rows if r['arm'] == arm and r['source'] == s]
-                   for s in ('command', 'feedback')}
-        if not all(samples.values()):
+        arm_rows = [row for row in rows if row['arm'] == arm]
+        feedback = [row for row in arm_rows if row['source'] == 'feedback']
+        input_source = next(
+            (source for source in ('command', 'interpolated')
+             if any(row['source'] == source for row in arm_rows)),
+            None,
+        )
+        if input_source is None or not feedback:
             continue
+        input_sources[arm] = input_source
+        command = [row for row in arm_rows if row['source'] == input_source]
         for j in range(1, 7):
             name = f'J{j}_rad'
             try:
-                series = [[(float(r['time_s']), float(r[name])) for r in samples[s]]
-                          for s in ('command', 'feedback')]
+                series = [
+                    [(float(row['time_s']), float(row[name])) for row in samples]
+                    for samples in (command, feedback)
+                ]
                 ct, cq = zip(*series[0])
                 ft, fq = zip(*series[1])
                 results[f'{arm}_J{j}'] = estimate_delay(ct, cq, ft, fq,
@@ -32,8 +42,9 @@ def analyze(path, args):
     scaling = {arm: statistics([float(r['scaling']) for r in rows
                               if r['arm'] == arm and r.get('scaling', '') != ''])
                for arm in sorted({r['arm'] for r in rows})}
-    return {'file': str(path.resolve()), 'joints': results, 'scaling': scaling,
-            'interpretation': 'Positive delay means feedback lags command; phase delay includes feedback transport. '
+    return {'file': str(path.resolve()), 'input_sources': input_sources,
+            'joints': results, 'scaling': scaling,
+            'interpretation': 'Positive delay means feedback lags the selected input; phase delay includes feedback transport. '
                               'Receipt timestamps are not robot execution timestamps.'}
 
 

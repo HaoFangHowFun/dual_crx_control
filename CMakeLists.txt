@@ -30,11 +30,9 @@ install(PROGRAMS
   scripts/dual_test_7_cartesian_facing_circle_motion.py
   scripts/search_facing_circle.py
   scripts/dual_test2_periodic.py
-  scripts/record_latency.py
   scripts/record_teleoperation.py
   scripts/simple_motion.py
   scripts/analyze_latency.py
-  scripts/analyze_latency_trace.py
   scripts/dual_mock_robot.py
   scripts/teleop_bridge
   DESTINATION lib/${PROJECT_NAME}

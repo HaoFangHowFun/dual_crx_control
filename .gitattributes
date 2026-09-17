@@ -1,1 +1,1 @@
-diagnostics/*.patch whitespace=-blank-at-eol
+* text=auto eol=crlf
