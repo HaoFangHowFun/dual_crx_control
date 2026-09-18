@@ -1,1 +1,1 @@
-"""Reusable kinematics and Cartesian control support for the dual CRX."""
+"""Robot models, interpolation, motion, analysis and teleoperation for dual CRX arms."""

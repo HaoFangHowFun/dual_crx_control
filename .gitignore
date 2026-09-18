@@ -30,8 +30,7 @@ tests/
 test_results/
 .pytest_cache/
 
-# Published latency report figures
-!docs/latency/*.png
-
 # Local motion recordings
 cartesian_motion_results/
+motion_recordings/
+wrench_recordings/

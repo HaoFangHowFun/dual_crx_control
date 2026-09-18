@@ -35,7 +35,7 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
-from dual_crx_control.robot_description import arm_description
+from dual_crx_control.robot.description import arm_description
 
 
 def launch_setup(context):
