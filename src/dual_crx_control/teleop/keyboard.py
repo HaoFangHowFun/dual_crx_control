@@ -28,7 +28,7 @@ from dual_crx_control.robot.kinematics import CRXKinematics
 RATE = 50.
 MOVES = {'w': (0, 1), 's': (0, -1), 'a': (1, 1),
          'd': (1, -1), 'r': (2, 1), 'f': (2, -1)}
-DEFAULTS = dict(step_m=.001, max_displacement_m=.05, state_timeout=.25,
+DEFAULTS = dict(step_m=.001, state_timeout=.25,
                 max_joint_step=.03, max_joint_velocity=.5, tracking_tolerance=.1)
 
 
@@ -79,15 +79,12 @@ class JogTarget:
         self.model, self.solver, self.settings = model, solver, settings
         self.q = q.copy()
         self.pose = model.fk(q)
-        self.origin = self.pose[:3, 3].copy()
 
     def candidate(self, key, feedback):
         p = self.settings
         target = self.pose.copy()
         axis, sign = MOVES[key]
         target[axis, 3] += sign * p['step_m']
-        if np.linalg.norm(target[:3, 3] - self.origin) > p['max_displacement_m'] + 1e-12:
-            raise ValueError('Cartesian displacement limit')
         result = self.solver.solve(target, self.q)
         if not result.success or not self.model.valid_joints(result.q):
             raise ValueError(f'IK rejected: {result.reason}')
@@ -107,8 +104,8 @@ class KeyboardControl(Node):
         self.settings = {k: self.declare_parameter(k, v).value for k, v in DEFAULTS.items()}
         if any(isinstance(v, bool) or not np.isfinite(v) or v <= 0 for v in self.settings.values()):
             raise ValueError('All jog limits must be finite and positive')
-        if self.settings['step_m'] > min(.005, self.settings['max_displacement_m']):
-            raise ValueError('step_m must not exceed 0.005 or max_displacement_m')
+        if self.settings['step_m'] > .005:
+            raise ValueError('step_m must not exceed 0.005')
         self.read_key = read_key
         self.side, self.jog, self.finished = 'left', None, False
         self.models, self.solvers, self.positions, self.received = {}, {}, {}, {}
@@ -219,7 +216,7 @@ class KeyboardControl(Node):
                 if self.jog is None:
                     self.jog = JogTarget(self.models[self.side], self.solvers[self.side],
                                          self.positions[self.side], self.settings)
-                    self.get_logger().info(f'ENABLED {self.side}: TCP world XYZ {self.jog.origin.tolist()}')
+                    self.get_logger().info(f'ENABLED {self.side}: TCP world XYZ {self.jog.pose[:3, 3].tolist()}')
                 return
             if key not in MOVES or self.jog is None:
                 return

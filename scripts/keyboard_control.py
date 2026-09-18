@@ -31,7 +31,6 @@ Enable and arm selection discard other keys in the same batch: press separately.
 
 Parameters (ROS --ros-args -p name:=value):
     step_m=0.001                 Cartesian increment; maximum 0.005 m.
-    max_displacement_m=0.05      Radius from the TCP position captured at enable.
     state_timeout=0.25          Feedback age limit, seconds.
     max_joint_step=0.03         Maximum per-target joint change, radians.
     max_joint_velocity=0.5      Target increment / 0.02 s limit, rad/s.
@@ -42,6 +41,7 @@ its configured velocity/acceleration/jerk limits, NOT a fixed 20 ms arrival time
 The node requires /joint_interpolation to report method=ruckig before enabling.
 
 Safety:
+    No Cartesian displacement radius is enforced around the enable position.
     Use ONE command source only; stop other teleop/motion publishers first.
     Start in mock. No collision checking or certified safety stop is provided.
     Space, switching arms and exit do NOT cancel an accepted Ruckig trajectory:

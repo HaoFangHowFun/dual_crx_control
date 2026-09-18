@@ -55,14 +55,14 @@ def test_input_batch_has_no_movement_backlog(data, expected):
     assert batch_key(data) == expected
 
 
-@pytest.mark.parametrize('failure', ['ik', 'limits', 'step', 'velocity', 'tracking', 'workspace'])
+@pytest.mark.parametrize('failure', ['ik', 'limits', 'step', 'velocity', 'tracking'])
 def test_rejection_does_not_accumulate(failure):
     settings = DEFAULTS.copy()
     solver = Solver()
     if failure in ('ik', 'limits'):
         solver.solve = lambda *args: SimpleNamespace(success=failure != 'ik', q=np.ones(6) * 2, reason=failure)
     for name, setting in [('step', 'max_joint_step'), ('velocity', 'max_joint_velocity'),
-                          ('tracking', 'tracking_tolerance'), ('workspace', 'max_displacement_m')]:
+                          ('tracking', 'tracking_tolerance')]:
         if failure == name:
             settings[setting] = .0001
     jog = JogTarget(Model(), solver, np.zeros(6), settings)
@@ -71,6 +71,14 @@ def test_rejection_does_not_accumulate(failure):
             jog.candidate('w', np.zeros(6))
         np.testing.assert_array_equal(jog.q, np.zeros(6))
         np.testing.assert_array_equal(jog.pose, np.eye(4))
+
+
+def test_jog_can_pass_former_displacement_radius():
+    jog = JogTarget(Model(), Solver(), np.zeros(6), DEFAULTS)
+    for _ in range(100):
+        pose, q = jog.candidate('w', jog.q.copy())
+        jog.pose, jog.q = pose, q
+    assert jog.pose[0, 3] == pytest.approx(.1)
 
 
 def test_terminal_restores_settings_and_flushes(monkeypatch):
