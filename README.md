@@ -1,32 +1,335 @@
 # Dual CRX Control
 
-ROS 2 control and motion tools for the dual FANUC CRX arms.
+ROS 2 tools for controlling two FANUC CRX-5iA arms: joint and Cartesian trajectories, keyboard control, external teleoperation, and motion recording. Start with mock hardware and RViz before configuring a connection to physical robots.
 
-## Build
+For a first run, follow **Setup and build** and **Quick start** below. All commands use a **Linux or WSL Bash terminal**, not Windows Command Prompt or PowerShell.
+
+## Setup and build
+
+The project targets ROS 2 Jazzy. Install ROS 2, `colcon`, `rosdep`, and Git LFS first.
+
+Download the official [FANUC ROS 2 driver](https://github.com/FANUC-CORPORATION/fanuc_driver) and robot descriptions into the same workspace:
 
 ```bash
+sudo apt install git-lfs
+git lfs install
+cd <workspace>/src
+git clone https://github.com/FANUC-CORPORATION/fanuc_description.git
+git clone --recurse-submodules https://github.com/FANUC-CORPORATION/fanuc_driver.git
+```
+
+The official driver's `main` branch targets ROS 2 Jazzy. See [package.xml](package.xml) for the remaining dependencies.
+
+Place this package in the `src` directory of a ROS workspace, for example:
+
+```text
+~/ros2_ws/
+└── src/
+    ├── dual_crx_control/
+    └── ... FANUC driver and description packages, unless already installed
+```
+
+The commands below assume that the package is located at `<workspace>/src/dual_crx_control`. Replace `<workspace>` with the root directory of your ROS workspace.
+
+Run these commands from the workspace root:
+
+```bash
+cd <workspace>
 source /opt/ros/jazzy/setup.bash
-colcon build --packages-select dual_crx_control
+# If FANUC packages are built in another workspace, source its install/setup.bash here.
+rosdep install --from-paths src --ignore-src -r -y
+colcon build --symlink-install --packages-up-to dual_crx_control
+source install/setup.bash
+ros2 pkg executables dual_crx_control
+```
+
+The last command should list executables such as `joint_sine.py`, `keyboard_control.py`, and `interpolation_node`. If the FANUC dependencies cannot be resolved, obtain and build the corresponding driver and description packages first; they are not included in this repository.
+
+**In every new terminal, prepare the environment before running commands:**
+
+```bash
+cd <workspace>
+source /opt/ros/jazzy/setup.bash
 source install/setup.bash
 ```
 
-If the package layout changed or an old symlink build is broken, remove only this
-package's generated directories and rebuild:
+## Quick start: a small joint motion in mock mode
+
+Before start, please jog the robot near the following pose
+
+| Arm | J1–J6, degrees |
+| --- | --- |
+| Left | `0, 0, 0, 0, -90, 0` |
+| Right | `-90, 0, 180, 0, 90, 0` |
+
+Then make sure there is no alarm and the manual mode is off.
+
+![Dual CRX control system overview](docs/images/robot_overview.png)
+
+### Terminal 1: start the control system
 
 ```bash
-rm -rf build/dual_crx_control install/dual_crx_control
-source /opt/ros/jazzy/setup.bash
-colcon build --packages-select dual_crx_control
-source install/setup.bash
+ros2 launch dual_crx_control dual_arm.launch.py \
+  mock:=true rviz:=true method:=linear input_rate_hz:=50.0
 ```
 
-Do not remove the whole workspace `build/` or `install/` unless all packages are
-intended to be rebuilt.
+This starts both simulated arms, their controllers, the interpolation node, and RViz. Wait for the controllers to finish starting before sending motion commands. Use `rviz:=false` if a graphical display is unavailable.
 
-## Launch
+![Dual CRX rviz overview](docs/images/robot_in_riviz.png)
+
+### Terminal 2: send a trajectory
+
+After sourcing the environment as shown above, run:
 
 ```bash
-ros2 launch dual_crx_control dual_arm.launch.py mock:=true rviz:=true
-ros2 launch dual_crx_control dual_arm.launch.py mock:=true rviz:=true wrench:=true
-ros2 run dual_crx_control record_wrench.py
+ros2 run dual_crx_control joint_sine.py \
+  --arms left right --joint 1 --amplitude-deg 1 \
+  --period 4 --duration 10 --rate 50
 ```
+
+Press **Enter** when prompted. Both arms move J1 around their current measured positions with a 1-degree sine amplitude and a 4-second period. `--duration 10` specifies the sine-motion duration; initial hold, return, and final hold add to the total runtime.
+
+When the motion finishes, the script saves joint CSV data and plots. The control system in terminal 1 stays running.
+
+To interrupt the motion, press `Ctrl+C` in terminal 2. The script stops sending targets and saves its recordings; the interpolator may finish the last accepted target before holding position. To end the mock session, then press `Ctrl+C` in terminal 1.
+
+Run only one control launch and one motion-command source for the same pair of arms. Stop the current command source before trying another mode below. If changing launch files or launch settings, stop the previous launch first.
+
+## Choose a control mode
+
+| Task | Launch | Command source |
+| --- | --- | --- |
+| Run predefined trajectories | `dual_arm.launch.py` | One of the trajectory scripts below |
+| Move a TCP with the keyboard | `dual_arm.launch.py method:=ruckig` | `keyboard_control.py` |
+| Connect an external teleoperation program | `dual_arm_teleop.launch.py` | Publish to `/teleop/joint_command` |
+
+### Predefined trajectories
+
+Use these examples with the **50 Hz** launch from the quick start. Run one at a time.
+
+```bash
+# Left-arm J1 sine motion; press Enter when prompted.
+ros2 run dual_crx_control joint_sine.py --arms left --joint 1 --amplitude-deg 1 --period 4 --duration 10 --rate 50
+
+# Both arms alternate between two joint positions, holding each for 2 seconds.
+ros2 run dual_crx_control simple_motion.py --joint 1 --range-deg 1 --hold 2 --duration 10 --rate 50
+
+# Both TCPs oscillate along world X with 0.02 m amplitude for 2 cycles.
+ros2 run dual_crx_control cartesian_sine.py --axis x --amplitude-m 0.02 --period 4 --cycles 2 --rate 50
+
+# Both TCPs trace a circle in the XY plane with a 0.02 m radius.
+ros2 run dual_crx_control cartesian_circle.py --plane xy --radius-m 0.02 --direction ccw --period 8 --cycles 1 --rate 50
+
+# Facing TCPs trace circles; inspect the pose and placement in mock mode first.
+ros2 run dual_crx_control facing_circle.py --plane xz --radius-m 0.1 --direction cw --period 3 --cycles 10 --rate 50
+```
+
+`simple_motion.py` and the Cartesian scripts **start automatically when ready**. By default, they first approach these configured initial joint positions:
+
+| Arm | J1–J6, degrees |
+| --- | --- |
+| Left | `0, 0, 0, 0, -90, 0` |
+| Right | `-90, 0, 180, 0, 90, 0` |
+
+A small trajectory amplitude therefore does not imply a small total move from the current pose. `joint_sine.py` instead uses the current measured joints as its center, without this initial-pose move. Its default amplitude is 20 degrees; explicitly set a small amplitude for initial trials, as in the examples.
+
+Use `--help` when you need the full argument list. The most common options are the motion amplitude or radius, period, duration/cycle count, selected arm, publishing rate, and output directory. Cartesian scripts also accept ROS parameters through `--ros-args -p` and parameter files. Explicit CLI options take precedence for the same parameter.
+
+```bash
+ros2 run dual_crx_control joint_sine.py --help
+ros2 run dual_crx_control cartesian_circle.py --help
+```
+
+The bundled [facing_circle_mock.yaml](config/facing_circle_mock.yaml) targets the `cartesian_circle` node. Load it with:
+
+```bash
+ros2 run dual_crx_control cartesian_circle.py --ros-args \
+  --params-file "$(ros2 pkg prefix --share dual_crx_control)/config/facing_circle_mock.yaml"
+```
+
+This configuration uses a 0.2 m TCP gap, unlike the 0.02 m default of `facing_circle.py`. For detailed motion behavior, recording formats, and migration from older executable names, see [docs/motion_scripts.md](docs/motion_scripts.md).
+
+### Keyboard TCP control
+
+In terminal 1, launch with Ruckig:
+
+```bash
+ros2 launch dual_crx_control dual_arm.launch.py mock:=true rviz:=true method:=ruckig
+```
+
+In terminal 2, start keyboard input and keep that terminal focused:
+
+```bash
+ros2 run dual_crx_control keyboard_control.py
+```
+
+| Key | Action |
+| --- | --- |
+| `1` / `2` | Select the left / right arm; selection disarms control |
+| `e` | Enable control at the selected arm's current measured TCP pose |
+| `w` / `s` | World X positive / negative |
+| `a` / `d` | World Y positive / negative |
+| `r` / `f` | World Z positive / negative |
+| Space | Disarm and discard pending keyboard input |
+| `q` / `Ctrl+C` | Exit |
+
+For example, press `1`, then `e`, then `w` separately to move the left TCP one step along world +X. The default step is **1 mm**. There is no automatic move to an initial pose. Targets preserve the orientation captured when enabling control; holding a direction key uses the operating system's key repeat.
+
+For a 0.5 mm step:
+
+```bash
+ros2 run dual_crx_control keyboard_control.py --ros-args -p step_m:=0.0005
+```
+
+The maximum step is 0.005 m. This mode requires `method:=ruckig` and an interactive Linux/WSL terminal. Space, arm switching, and exit do not cancel the last target already accepted by the interpolator.
+
+The keyboard program does not record automatically. To record a session, run the standalone recorder shown under **Recording and analysis** in another terminal.
+
+### External teleoperation
+
+External teleoperation requires the separate **Retargeting project** and a **Meta Quest device**. The Retargeting project will be released soon.
+
+```bash
+ros2 launch dual_crx_control dual_arm_teleop.launch.py \
+  mock:=true rviz:=true method:=linear input_rate_hz:=100.0 \
+  record:=true record_output_dir:="$PWD/teleop_recordings"
+```
+
+This starts the control system, `teleop_bridge`, and the recorder. Your external program must provide the targets; this launch does not generate a motion pattern.
+
+| Topic | Message type | Content |
+| --- | --- | --- |
+| `/teleop/joint_command` | `std_msgs/msg/Float64MultiArray` | Exactly 12 finite values: left J1–J6, then right J1–J6, in **radians** |
+| `/teleop/joint_states` | `sensor_msgs/msg/JointState` | Combined measured feedback for both arms |
+| `/interpolation/joint_targets` | `sensor_msgs/msg/JointState` | Interpolator input; names and positions for one complete arm (6 joints) or both arms (12 joints) |
+| `/interpolation/joint_commands` | `sensor_msgs/msg/JointState` | Interpolated commands for monitoring or recording |
+| `/left/joint_states`, `/right/joint_states` | `sensor_msgs/msg/JointState` | Individual arm feedback |
+
+Joint names are fixed: `left_J1`–`left_J6` and `right_J1`–`right_J6`. Read measured feedback to establish an initial target, then publish your targets continuously. The launch above expects a 100 Hz input stream.
+
+```bash
+ros2 topic echo /teleop/joint_states --once
+ros2 topic hz /teleop/joint_command
+```
+
+`state_publish_rate` controls the merged feedback rate; it does not throttle incoming commands. Use `record:=false` to disable automatic recording.
+
+Set `record_output_dir` to a writable location as shown above. The launch file has a machine-specific default, so explicitly setting this argument is recommended when sharing the package across workstations.
+
+## ROS topics
+
+These are the topics normally used by the launch files and motion programs:
+
+| Topic | Type | Direction and purpose |
+| --- | --- | --- |
+| `/left/joint_states` | `sensor_msgs/msg/JointState` | Published by the left driver; read by the interpolator, motion scripts, keyboard control, and recorder |
+| `/right/joint_states` | `sensor_msgs/msg/JointState` | Published by the right driver; read by the interpolator, motion scripts, keyboard control, and recorder |
+| `/interpolation/joint_targets` | `sensor_msgs/msg/JointState` | Motion programs and `teleop_bridge` publish targets here; the interpolation node subscribes |
+| `/interpolation/joint_commands` | `sensor_msgs/msg/JointState` | The interpolation node publishes the interpolated joint command stream; motion scripts and recorders read it |
+| `/left/forward_position_controller/commands` | `std_msgs/msg/Float64MultiArray` | The interpolation node publishes six left-arm joint positions to the controller |
+| `/right/forward_position_controller/commands` | `std_msgs/msg/Float64MultiArray` | The interpolation node publishes six right-arm joint positions to the controller |
+| `/teleop/joint_command` | `std_msgs/msg/Float64MultiArray` | External teleoperation input: 12 radians, left J1–J6 followed by right J1–J6 |
+| `/teleop/joint_states` | `sensor_msgs/msg/JointState` | `teleop_bridge` publishes merged feedback for both arms |
+| `/robot_description` | `std_msgs/msg/String` | The robot state publisher provides the URDF; Cartesian and keyboard nodes can read it |
+
+Joint names are fixed as `left_J1`–`left_J6` and `right_J1`–`right_J6`. A normal trajectory command therefore follows this path:
+
+```text
+motion script / teleop_bridge
+        -> /interpolation/joint_targets
+        -> interpolation_node
+        -> /left|right/forward_position_controller/commands
+        -> arm driver
+        -> /left|right/joint_states
+```
+
+The interpolator publishes at 500 Hz. `input_rate_hz` sets the expected input rate and interpolation horizon for linear/cubic modes; it does not throttle the motion script or external publisher. Use `ros2 topic list`, `ros2 topic info <topic>`, and `ros2 topic echo <topic> --once` to inspect a running system.
+
+## Recording and analysis
+
+By default, trajectory scripts save results under `motion_recordings/<timestamp>/` relative to the current directory. On normal completion or `Ctrl+C`, inspect:
+
+- `joints.csv`: targets, interpolated commands, and feedback for each selected arm, with joint angles in radians.
+- `left_joints.png` and `right_joints.png`: six-joint plots for the selected arms.
+- Additional `axis_*` or `circle_*` CSV, PNG, and JSON files for Cartesian motion.
+
+For keyboard control or another command source, start the standalone recorder and press `Ctrl+C` when finished to save its plots:
+
+```bash
+ros2 run dual_crx_control record_teleoperation.py --ros-args \
+  -p output_dir:="$PWD/teleop_recordings"
+```
+
+Do not start a duplicate recorder when the teleoperation launch already has recording enabled. Trajectory recordings label targets as `target`; the standalone/teleoperation recorder labels them as `telebridge`. Interpolated commands and feedback use `interpolated` and `feedback`.
+
+To estimate the delay between interpolated commands and feedback, replace the CSV path with an actual recording:
+
+```bash
+ros2 run dual_crx_control analyze_latency.py \
+  'motion_recordings/<timestamp>/joints.csv' --output latency_report.json
+```
+
+CSV timestamps represent local publication or receipt times. The estimated delay includes feedback transport; it is not the robot's execution timestamp or a packet round-trip measurement. TCP traces are forward-kinematics estimates from joint feedback, not external tracking measurements.
+
+## Physical robots
+
+First prepare the FANUC driver configuration, network connections, and controller-side motion access. Then set `mock:=false` and specify the actual robot IP addresses:
+
+```bash
+ros2 launch dual_crx_control dual_arm.launch.py \
+  mock:=false rviz:=false method:=linear input_rate_hz:=50.0 \
+  left_robot_ip:=192.168.2.100 right_robot_ip:=192.168.1.100
+```
+
+This starts drivers with motion control enabled and activates position controllers. Before sending trajectories, confirm that the modeled base placements and TCP offsets match the installation.
+
+These settings are in [dual_crx.urdf.xacro](urdf/dual_crx.urdf.xacro). Each TCP currently has a 0.035 m offset along its `ee_mount` X axis. The relative arm placement reflects an existing installation and is not calibrated automatically.
+
+The package does not provide complete link/tool collision checking. Successful mock execution or IK checks do not establish that a physical path is collision-free. `Ctrl+C` and keyboard Space stop new input; they are not hardware emergency stops. Use the installation's hardware emergency stop when an immediate stop is required.
+
+There is also a `dual_arm_readonly.launch.py` using the driver's `motion_control=0` and `initial_controller=none` settings. It currently hard-codes the IP addresses above, physical hardware, and RViz. It does not expose the main launch's `mock` and related arguments; check its settings and driver support before use.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| `Package 'dual_crx_control' not found` | Confirm the build succeeded and source the workspace's `install/setup.bash` in the current terminal |
+| Missing FANUC package or Xacro | Install/build and source both the driver and description packages; mock mode needs them too |
+| Waiting for joint states or interpolation | Check that the launch is running, both controllers are active, and terminals use the same `ROS_DOMAIN_ID` |
+| Keyboard control will not enable | Use `method:=ruckig`, check for fresh feedback, and press the arm-selection key and `e` separately in an interactive terminal |
+| RViz cannot open | Check the graphical display environment, or run mock mode with `rviz:=false` |
+| Missing or unloadable `_ruckig` | Check that the native extension built successfully and that the active ROS/Python environment matches the build |
+| Recording directory is not writable | Set `--output-dir`, `record_output_dir`, or the recorder's `output_dir` to a writable location |
+| Missing `record_wrench.py` or `wrench` option | This version has neither that executable nor that launch argument; use the joint-recording workflow above |
+
+Useful checks:
+
+```bash
+ros2 control list_controllers -c /left/controller_manager
+ros2 control list_controllers -c /right/controller_manager
+ros2 topic echo /left/joint_states --once
+ros2 topic echo /right/joint_states --once
+```
+
+## Development and advanced tools
+
+The main directories are `launch/` for startup configuration, `config/` for controller and trajectory parameters, `scripts/` for executable entry points, `src/dual_crx_control/` for reusable implementations, and `tools/` for tests and offline utilities.
+
+After building, run package tests from the workspace root:
+
+```bash
+colcon test --packages-select dual_crx_control
+colcon test-result --verbose
+```
+
+Run the following tools from the **package root**, after sourcing ROS and the built workspace:
+
+```bash
+# Software-only integration scenarios; no FANUC hardware driver is started.
+ROS_DOMAIN_ID=177 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 tools/smoke_motion.py
+
+# Show options for offline facing-circle placement search; no motion is published.
+python3 tools/search_facing_circle.py --help
+```
+
+[scripts/calibrate_arm_bases.py](scripts/calibrate_arm_bases.py) estimates the right base placement relative to the left from paired TCP measurements. Replace its example measurement points before use. It prints the transform and fit errors without modifying the model.
