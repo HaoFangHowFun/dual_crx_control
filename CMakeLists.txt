@@ -19,6 +19,7 @@ target_link_libraries(_ruckig PRIVATE ruckig::ruckig)
 install(TARGETS _ruckig LIBRARY DESTINATION "${PYTHON_INSTALL_DIR}/${PROJECT_NAME}")
 
 install(PROGRAMS
+  scripts/keyboard_control.py
   scripts/preplanned_trajectory/simple_motion.py
   scripts/preplanned_trajectory/joint_sine.py
   scripts/preplanned_trajectory/cartesian_sine.py
@@ -68,6 +69,8 @@ endif()
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(keyboard tools/test_keyboard.py TIMEOUT 60
+    ENV PYTHONDONTWRITEBYTECODE=1 OPENBLAS_NUM_THREADS=1)
   ament_add_pytest_test(motion_refactor tools/test_motion_refactor.py TIMEOUT 60
     ENV PYTHONDONTWRITEBYTECODE=1 OPENBLAS_NUM_THREADS=1 MPLCONFIGDIR=/tmp/dual_crx_matplotlib)
 endif()
