@@ -19,6 +19,7 @@ log/
 # Generated plots / test output
 *.png
 *.pdf
+!docs/images/*.png
 
 # Temporary files
 *.tmp
