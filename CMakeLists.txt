@@ -27,6 +27,7 @@ install(PROGRAMS
   scripts/preplanned_trajectory/facing_circle.py
   scripts/util/interpolation_node
   scripts/util/teleop_bridge
+  scripts/analysis/record_wrench.py
   scripts/analysis/record_teleoperation.py
   scripts/analysis/analyze_latency.py
   DESTINATION lib/${PROJECT_NAME}
@@ -69,6 +70,8 @@ endif()
 
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(wrench_recording tools/test_wrench_recording.py TIMEOUT 60
+    ENV PYTHONDONTWRITEBYTECODE=1 OPENBLAS_NUM_THREADS=1 MPLBACKEND=Agg MPLCONFIGDIR=/tmp/dual_crx_matplotlib)
   ament_add_pytest_test(keyboard tools/test_keyboard.py TIMEOUT 60
     ENV PYTHONDONTWRITEBYTECODE=1 OPENBLAS_NUM_THREADS=1)
   ament_add_pytest_test(motion_refactor tools/test_motion_refactor.py TIMEOUT 60

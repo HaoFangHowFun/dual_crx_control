@@ -28,7 +28,7 @@ This launch starts the control stack. Run a motion script in another terminal, e
 simple_motion.py records its own CSV and generates left/right plots on completion or Ctrl+C.
 """
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, TimerAction
 from launch.conditions import IfCondition
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -88,6 +88,20 @@ def launch_setup(context):
         )
         for side in ("right", "left")
     ]
+    wrench_spawners = [
+        Node(
+            package="controller_manager", executable="spawner", namespace=side,
+            name=f"{side}_force_torque_broadcaster_spawner", output="screen",
+            arguments=["force_torque_sensor_broadcaster",
+                       "--controller-manager", f"/{side}/controller_manager",
+                       "--controller-manager-timeout", "180", "--param-file",
+                       PathJoinSubstitution([
+                           FindPackageShare("dual_crx_control"), "config",
+                           f"wrench_controllers_{side}.yaml"]),
+                       "--unload-on-kill"],
+        )
+        for side in ("right", "left")
+    ]
     interpolation = Node(
         package="dual_crx_control", executable="interpolation_node", output="screen",
         parameters=[{
@@ -120,6 +134,8 @@ def launch_setup(context):
         robot1,
         robot2,
         *forward_spawners,
+        TimerAction(period=5.0, actions=wrench_spawners,
+                    condition=IfCondition(LaunchConfiguration("wrench"))),
         interpolation,
         joint_state_merger,
         robot_state_publisher,
@@ -136,5 +152,7 @@ def generate_launch_description():
         DeclareLaunchArgument("left_robot_ip", default_value="192.168.2.100"),
         DeclareLaunchArgument("input_rate_hz", default_value="50.0"),
         DeclareLaunchArgument("method", default_value="linear", choices=["linear", "cubic", "ruckig"]),
+        DeclareLaunchArgument("wrench", default_value="false", choices=["true", "false"],
+                              description="Enable FANUC force/torque broadcasters"),
         OpaqueFunction(function=launch_setup),
     ])

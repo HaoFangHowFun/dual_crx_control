@@ -5,6 +5,8 @@
       type: joint_state_broadcaster/JointStateBroadcaster
     forward_position_controller:
       type: forward_command_controller/ForwardCommandController
+    force_torque_sensor_broadcaster:
+      type: force_torque_sensor_broadcaster/ForceTorqueSensorBroadcaster
 
 /**/joint_state_broadcaster:
   ros__parameters:

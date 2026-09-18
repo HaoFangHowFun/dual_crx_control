@@ -1,0 +1,4 @@
+/**/force_torque_sensor_broadcaster:
+  ros__parameters:
+    sensor_name: ft_sensor
+    frame_id: right_fanuc_flange
