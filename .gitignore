@@ -33,3 +33,4 @@ test_results/
 # Local motion recordings
 cartesian_motion_results/
 motion_recordings/
+wrench_recordings/
